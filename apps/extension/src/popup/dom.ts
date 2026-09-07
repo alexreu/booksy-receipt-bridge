@@ -54,4 +54,10 @@ export function applyPopupView(document: Document, view: PopupView): void {
 
   element('hint').textContent = view.hint ?? '';
   element('footer').textContent = view.footer ?? '';
+
+  // #feedback is deliberately NOT written here. It carries the result of an
+  // action the user just took, and printing re-renders the whole view straight
+  // afterwards to pick up a printer that may have gone. When that message
+  // shared #hint, the re-render wiped it and a test print reported nothing at
+  // all - the sort of coupling only a real click exposes.
 }

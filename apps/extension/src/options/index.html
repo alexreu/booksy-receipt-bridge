@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Booksy Receipt Bridge — Paramètres</title>
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Booksy Receipt Bridge</h1>
+      <p class="status" id="status" data-state="checking">Chargement…</p>
+
+      <!--
+        novalidate: the min/max attributes stay for the spinners, but native
+        constraint validation must not block submit. When it did, an
+        out-of-range value silently cancelled the submit event, so buildPatch
+        never ran and no message appeared at all - while a value that was in
+        range but inconsistent did get a message. All validation lives in one
+        place instead.
+      -->
+      <form id="form" novalidate>
+        <fieldset id="fields" disabled>
+          <legend>Imprimante</legend>
+
+          <label for="printer">Imprimante</label>
+          <select id="printer">
+            <option value="">— aucune —</option>
+          </select>
+          <p class="note" id="printer-note"></p>
+
+          <div class="row">
+            <div>
+              <label for="paper-width">Largeur papier (mm)</label>
+              <input type="number" id="paper-width" min="20" max="120" step="1" />
+            </div>
+            <div>
+              <label for="printable-width">Largeur imprimable (mm)</label>
+              <input type="number" id="printable-width" min="20" max="120" step="1" />
+            </div>
+            <div>
+              <label for="columns">Colonnes</label>
+              <input type="number" id="columns" min="16" max="96" step="1" />
+            </div>
+          </div>
+          <p class="note">
+            42 colonnes correspondent à 80 mm en Font A sur une TM-T88V. Imprimez un
+            ticket de test : le dernier chiffre de la règle doit tomber en bout de ligne.
+          </p>
+        </fieldset>
+
+        <fieldset id="printing-fields" disabled>
+          <legend>Impression</legend>
+
+          <label class="check">
+            <input type="checkbox" id="show-preview" />
+            Afficher un aperçu avant impression
+          </label>
+
+          <label class="check">
+            <input type="checkbox" id="auto-print" disabled />
+            Imprimer automatiquement après téléchargement
+          </label>
+          <p class="note" id="auto-print-note"></p>
+
+          <label for="threshold">Seuil de confiance pour l’impression automatique</label>
+          <input type="number" id="threshold" min="0" max="1" step="0.01" />
+          <p class="note">
+            En dessous de ce seuil, le service refuse d’imprimer automatiquement. Une
+            impression demandée à la main passe toujours.
+          </p>
+        </fieldset>
+
+        <div class="actions">
+          <button type="submit" id="save" disabled>Enregistrer</button>
+          <button type="button" id="reload">Recharger</button>
+        </div>
+        <p class="feedback" id="feedback"></p>
+      </form>
+    </main>
+    <script type="module" src="./options.ts"></script>
+  </body>
+</html>

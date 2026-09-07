@@ -18,7 +18,7 @@ const client = new ChromeNativeHostClient((application, message) =>
 );
 
 chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
-  handleExtensionMessage(raw, { id: sender.id }, {
+  handleExtensionMessage(raw, { id: sender.id, origin: sender.origin, url: sender.url }, {
     client,
     extensionId: chrome.runtime.id,
     log: (message) => console.warn('[brb]', message),

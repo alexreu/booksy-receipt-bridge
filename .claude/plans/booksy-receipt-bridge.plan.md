@@ -178,7 +178,8 @@ Ordre final :
 | 1.5b | Spike matériel : spooler RAW + TM-T88V | AC14, AC15 — dès que le PC est dispo |
 | 4 | Native Host : protocole, Zod, `PING`, `GET_STATUS`, CLI | **fait** — host pilotable sans Chrome |
 | 5 | Extension MV3 : SW, popup, `NativeHostClient` | **fait** — AC3, AC4 |
-| 6 | `WindowsPrinterAdapter` : `LIST_PRINTERS`, `PRINT_TEST`, `PRINT_RECEIPT` | AC5, AC6, AC14, AC15 |
+| 6a | `LIST_PRINTERS`, `PRINT_TEST`, `PRINT_RECEIPT`, options | **fait** — logiciel |
+| 6b | `WindowsPrinterAdapter` sur matériel | AC5, AC6, AC14, AC15 — bloqué |
 | 7 | `chrome.downloads` + déduplication | AC16, AC17 |
 | 8 | `BooksyDomAdapter` + injection bouton | AC18 (fallback intact) |
 | 9 | Installeur Windows (`Setup.exe`) | AC1, AC2, AC20 |
@@ -371,6 +372,115 @@ Quatre choses découvertes en implémentant, à retenir pour les phases suivante
 
 Le spike 1.5b attend **un poste Windows**. Le protocole est dans
 `spikes/escpos-raw/README.md`. C'est le seul blocage restant côté matériel.
+
+---
+
+## 12. Phase 6a — impression côté logiciel, livrée le 2026-09-07
+
+483 tests, 33 fichiers, quatre portes à exit 0. JavaScript de l'extension :
+14,8 kB. **Le protocole est désormais intégralement implémenté** — un test
+compare `SUPPORTED` à `NATIVE_MESSAGE_TYPES`, donc un type ajouté au schéma sans
+handler échoue en CI au lieu d'atteindre un utilisateur.
+
+### `WindowsPrinterAdapter` : PowerShell, pas de FFI
+
+Les octets doivent atteindre `WritePrinter` en datatype RAW, donc appeler
+`winspool.drv`. Un module natif (koffi) serait plus rapide, mais **un `.node` ne
+peut pas être embarqué dans un exécutable Node SEA** : il faudrait le livrer à
+côté et le retrouver au runtime, contre AC20. PowerShell avec un P/Invoke inline
+coûte quelques centaines de millisecondes au démarrage et n'exige rien
+d'installé.
+
+RAW est tout l'intérêt : il contourne le rendu et la mise en page du pilote,
+donc rien ne remet le ticket à l'échelle et aucune fenêtre n'apparaît (AC14,
+AC15). Si le spike 1.5b montre que le coût de démarrage ou un antivirus rend ça
+impraticable, **seul ce fichier change**.
+
+Les octets passent par un fichier temporaire, pas par la ligne de commande : un
+flux ESC/POS est binaire et truffé de caractères de contrôle qu'aucun
+échappement shell ne survit.
+
+### Sécurité des chemins (§23)
+
+`resolveSource` n'ouvre un fichier que s'il est absolu, en `.pdf`, dans un
+dossier autorisé (Téléchargements plus `printing.allowedDirs`), un fichier
+régulier, sous 20 Mo, et commençant par `%PDF-`.
+
+**L'ordre compte** : la containment est vérifiée **après** résolution des liens
+symboliques. Un lien dans Téléchargements pointant vers `~/.ssh/id_rsa` passe
+tous les contrôles textuels — c'est précisément l'attaque que cet ordre bloque,
+et elle a son test.
+
+`isInside` compare sur le séparateur : sans ça, `Downloads-secret` passerait
+pour être dans `Downloads`.
+
+### Déduplication : sur disque, pas en mémoire (§54)
+
+`sendNativeMessage` démarre un **nouveau processus host à chaque message**, donc
+tout ce qui est retenu dans une variable a disparu avant l'arrivée du second
+clic — précisément le clic à attraper. Conséquence directe du choix « one-shot »
+du §2.3, et la raison pour laquelle l'historique est un fichier.
+
+Clé par déclencheur : un clic humain est identifié par ce qui est imprimé sur le
+ticket, un déclenchement automatique par le **hash du fichier**, pour qu'un
+nouveau téléchargement du même reçu ne produise pas un second ticket.
+
+**Limite assumée** : deux processus host en course peuvent lire l'historique
+avant que l'un des deux n'écrive, et imprimer deux fois. Réduire ça demanderait
+un vrai verrou de fichier ; la fenêtre de protection fait le travail, et le coût
+d'une course perdue est un ticket en trop.
+
+### Le seuil de confiance vit dans le host
+
+`PRINT_RECEIPT` prend un `trigger`. En `auto`, le host exige
+`confidence >= confidenceThreshold` et refuse en dessous (§34) ; en `user`, il
+imprime ce qu'il a lu et rapporte la confiance. La règle est côté host parce que
+le host possède la configuration (§68).
+
+Tous les refus se produisent **avant qu'un seul octet n'atteigne le spooler** —
+le papier ne se dé-imprime pas. Un test vérifie que l'adapter n'a rien reçu dans
+chaque cas de refus.
+
+### Trois bugs réels trouvés en pilotant Chrome
+
+Encore une fois, aucun test unitaire ne les attrapait.
+
+**1. Aucun retour après « Imprimer un test ».** Le message allait dans `#hint`,
+puis le re-render qui suit l'impression le réécrasait. Corrigé en **supprimant le
+couplage d'ordre** plutôt qu'en réordonnant : un élément `#feedback` dédié, que
+`applyPopupView` ne touche pas. Régression couverte.
+
+**2. La page Options ne pouvait rien enregistrer.** Je distinguais un content
+script par la présence de `sender.tab` — mais une page d'extension **ouverte dans
+un onglet** en a aussi, et la page Options est déclarée `open_in_tab`. Le bon
+discriminant est l'**origine** : `chrome-extension://<id>`. Un content script a
+l'origine de sa page web.
+
+**3. Rejet silencieux dans le formulaire.** `<input max="120">` déclenche la
+validation native HTML5, qui **annule l'événement `submit`** : ni `buildPatch` ni
+aucun message ne s'exécutait. Une valeur hors bornes ne disait rien, une valeur
+dans les bornes mais incohérente donnait un message. Formulaire passé en
+`novalidate`, toute la validation dans `buildPatch`.
+
+### Une correction d'honnêteté d'interface
+
+« Imprimer automatiquement » était activable, car je l'avais lié à
+`supported.includes('PRINT_RECEIPT')` côté host. Mais la capacité manquante est
+dans l'**extension** : détection des téléchargements (phase 7) et déclencheur
+(phase 10). Le host sait imprimer un reçu aujourd'hui ; rien ne le lui demande
+automatiquement. Piloté maintenant par `AUTO_PRINT_IMPLEMENTED`, à basculer en
+phase 10.
+
+### Vérifié dans Chrome 152
+
+Popup : quatre coches vertes, nom d'imprimante, bouton de test **actif**, et le
+clic renvoie « Ticket de test envoyé. Caractères remplacés : ’ œ » — le rapport
+de substitution qui servira sur la vraie imprimante.
+
+Options : liste peuplée par `LIST_PRINTERS`, note honnête « pilote « mock » : ce
+ne sont pas de vraies imprimantes », largeurs et seuil lus dans le host,
+enregistrement persisté (42 → 56 colonnes vérifié sur disque), validation
+refusée avec son message.
 
 ---
 

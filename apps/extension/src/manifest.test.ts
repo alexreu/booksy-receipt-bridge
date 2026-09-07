@@ -23,6 +23,7 @@ interface Manifest {
   content_scripts?: unknown[];
   background?: { service_worker?: string; type?: string };
   action?: { default_popup?: string };
+  options_ui?: { page?: string; open_in_tab?: boolean };
   content_security_policy?: Record<string, string>;
 }
 
@@ -78,6 +79,11 @@ describe('extension manifest', () => {
 
     expect(manifest.action?.default_popup).toBe('popup/index.html');
     expect(exists(join('src', 'popup', 'index.html'))).toBe(true);
+  });
+
+  it('points at an options page that exists', () => {
+    expect(manifest.options_ui?.page).toBe('options/index.html');
+    expect(exists(join('src', 'options', 'index.html'))).toBe(true);
   });
 
   it('uses an ES module service worker', () => {

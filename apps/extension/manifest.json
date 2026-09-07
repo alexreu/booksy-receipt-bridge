@@ -16,5 +16,9 @@
   "action": {
     "default_popup": "popup/index.html",
     "default_title": "Booksy Receipt Bridge"
+  },
+  "options_ui": {
+    "page": "options/index.html",
+    "open_in_tab": true
   }
 }

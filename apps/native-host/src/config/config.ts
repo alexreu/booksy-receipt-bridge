@@ -23,6 +23,7 @@ export const BridgeConfigSchema = z.object({
     autoPrint: z.boolean().default(false),
     showPreview: z.boolean().default(true),
     confidenceThreshold: z.number().min(0).max(1).default(0.9),
+    allowedDirs: z.array(z.string()).default([]),
   }),
 });
 

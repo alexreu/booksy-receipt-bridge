@@ -157,6 +157,20 @@ describe('applyPopupView - unavailable', () => {
   });
 });
 
+describe('applyPopupView - the feedback element is left alone', () => {
+  it('does not clear a message about an action the user just took', () => {
+    // Regression: the test-print result used to share #hint, and the re-render
+    // that follows a print wiped it, so clicking the button reported nothing.
+    const feedback = document.getElementById('feedback');
+    expect(feedback).not.toBeNull();
+    if (feedback === null) return;
+
+    feedback.textContent = 'Ticket de test envoyé.';
+    applyPopupView(document, popupView({ kind: 'connected', version: '1.4.0', status: status() }));
+    expect(feedback.textContent).toBe('Ticket de test envoyé.');
+  });
+});
+
 describe('applyPopupView - re-render', () => {
   it('replaces the previous checklist instead of appending to it', () => {
     const connected = popupView({ kind: 'connected', version: '1.4.0', status: status() });

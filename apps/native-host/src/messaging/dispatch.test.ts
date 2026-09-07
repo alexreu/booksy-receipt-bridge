@@ -1,6 +1,15 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { MockPrinterAdapter, type PrinterAdapter } from '@brb/printer';
-import { MAX_RESPONSE_BYTES, type NativeResponse, type StatusData } from '@brb/shared';
+import {
+  MAX_RESPONSE_BYTES,
+  NATIVE_MESSAGE_TYPES,
+  type ListPrintersData,
+  type NativeResponse,
+  type StatusData,
+} from '@brb/shared';
 import { DEFAULT_CONFIG, type ConfigState } from '../config/config.ts';
 import { silentLogger } from '../logging/logger.ts';
 import { SUPPORTED, dispatch, withinResponseLimit, type HostContext } from './dispatch.ts';
@@ -8,12 +17,15 @@ import { SUPPORTED, dispatch, withinResponseLimit, type HostContext } from './di
 const PRINTER_NAME = 'EPSON TM-T88V Receipt5';
 
 function context(overrides: Partial<HostContext> = {}): HostContext {
+  const dir = mkdtempSync(join(tmpdir(), 'brb-dispatch-'));
   return {
     version: '9.9.9',
     config: { config: DEFAULT_CONFIG, present: false } satisfies ConfigState,
     printer: new MockPrinterAdapter(),
     printerAdapter: 'mock',
     log: silentLogger(),
+    configFile: join(dir, 'config.json'),
+    historyPath: join(dir, 'print-history.json'),
     ...overrides,
   };
 }
@@ -89,8 +101,14 @@ describe('dispatch - GET_STATUS', () => {
 
   it('declares which message types it implements', async () => {
     const status = await statusOf();
-    expect(status.supported).toEqual(['PING', 'GET_STATUS']);
     expect(status.supported).toEqual(SUPPORTED);
+  });
+
+  it('implements every type the protocol declares', async () => {
+    // The invariant that matters now the protocol is complete: a type added to
+    // the schema without a handler fails here rather than reaching a user as a
+    // NOT_IMPLEMENTED error.
+    expect([...SUPPORTED].sort()).toEqual([...NATIVE_MESSAGE_TYPES].sort());
   });
 
   it('survives a printer backend that throws', async () => {
@@ -117,21 +135,30 @@ describe('dispatch - refusals', () => {
     expect(response.error?.detail).toContain('type');
   });
 
-  it('refuses a known type this version does not implement', async () => {
-    // A valid protocol message that will arrive in a later phase must not be
-    // reported as malformed.
-    const response = await dispatch({ id: '1', type: 'LIST_PRINTERS' }, context());
-    expect(response.success).toBe(false);
-    expect(response.error?.code).toBe('NOT_IMPLEMENTED');
-    expect(response.error?.detail).toContain('LIST_PRINTERS');
-  });
-
-  it('refuses PRINT_RECEIPT for now rather than pretending', async () => {
+  it('refuses to print with no printer configured, rather than failing obscurely', async () => {
     const response = await dispatch(
-      { id: '1', type: 'PRINT_RECEIPT', payload: { source: { kind: 'path', path: 'x.pdf' } } },
+      {
+        id: '1',
+        type: 'PRINT_RECEIPT',
+        payload: { source: { kind: 'path', path: '/tmp/x.pdf' } },
+      },
       context(),
     );
-    expect(response.error?.code).toBe('NOT_IMPLEMENTED');
+    expect(response.success).toBe(false);
+    expect(response.error?.code).toBe('PRINTER_NOT_FOUND');
+  });
+
+  it('refuses a path outside the allowed directories - plan section 23', async () => {
+    const response = await dispatch(
+      {
+        id: '1',
+        type: 'PARSE_RECEIPT',
+        payload: { source: { kind: 'path', path: '/etc/passwd' } },
+      },
+      context(),
+    );
+    expect(response.success).toBe(false);
+    expect(response.error?.code).toBe('FILE_NOT_ALLOWED');
   });
 
   it('recovers the id from a message that failed validation', async () => {
@@ -192,5 +219,67 @@ describe('withinResponseLimit', () => {
     // Two-byte characters: under the cap by length, over it by bytes.
     const response: NativeResponse = { id: '1', success: true, data: { pad: 'é'.repeat(half) } };
     expect(withinResponseLimit(response).success).toBe(false);
+  });
+});
+
+describe('dispatch - LIST_PRINTERS', () => {
+  it('returns the queues and names the implementation that answered', async () => {
+    const response = await dispatch(
+      { id: '1', type: 'LIST_PRINTERS' },
+      context({ printer: new MockPrinterAdapter({ printers: [{ name: 'A' }, { name: 'B' }] }) }),
+    );
+    expect(response.success).toBe(true);
+    const data = response.data as ListPrintersData;
+    expect(data.printers.map((printer) => printer.name)).toEqual(['A', 'B']);
+    expect(data.adapter).toBe('mock');
+  });
+});
+
+describe('dispatch - configuration', () => {
+  it('reports the configuration and whether a file exists', async () => {
+    const response = await dispatch({ id: '1', type: 'GET_CONFIG' }, context());
+    expect(response.success).toBe(true);
+    expect(response.data).toMatchObject({ present: false });
+  });
+
+  it('writes a patch and reports back what is now on disk', async () => {
+    const ctx = context();
+    const response = await dispatch(
+      {
+        id: '1',
+        type: 'SET_CONFIG',
+        payload: { printer: { name: PRINTER_NAME }, printing: { showPreview: false } },
+      },
+      ctx,
+    );
+    expect(response.success).toBe(true);
+    expect(response.data).toMatchObject({
+      present: true,
+      config: {
+        printer: { name: PRINTER_NAME },
+        printing: { showPreview: false, autoPrint: false },
+      },
+    });
+  });
+
+  it('makes the new configuration visible to the next message', async () => {
+    // Re-read from disk rather than trusting the merge, so a later GET_STATUS
+    // cannot disagree with what was just saved.
+    const ctx = context();
+    await dispatch(
+      { id: '1', type: 'SET_CONFIG', payload: { printer: { name: PRINTER_NAME } } },
+      ctx,
+    );
+    const status = await dispatch({ id: '2', type: 'GET_STATUS' }, ctx);
+    expect((status.data as StatusData).printerName).toBe(PRINTER_NAME);
+    expect((status.data as StatusData).configPresent).toBe(true);
+  });
+
+  it('rejects a patch that would store an invalid value', async () => {
+    const response = await dispatch(
+      { id: '1', type: 'SET_CONFIG', payload: { printing: { confidenceThreshold: 9 } } },
+      context(),
+    );
+    expect(response.success).toBe(false);
   });
 });

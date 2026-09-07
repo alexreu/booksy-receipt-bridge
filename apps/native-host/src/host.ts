@@ -1,9 +1,10 @@
-import { MockPrinterAdapter, type PrinterAdapter } from '@brb/printer';
+import { MockPrinterAdapter, WindowsPrinterAdapter, type PrinterAdapter } from '@brb/printer';
 import type { NativeResponse } from '@brb/shared';
 import { loadConfig } from './config/config.ts';
 import { createLogger, type Logger } from './logging/logger.ts';
 import { dispatch, withinResponseLimit, type HostContext } from './messaging/dispatch.ts';
-import { configPath, logDir } from './paths.ts';
+import { configPath, dataDir, logDir } from './paths.ts';
+import { join } from 'node:path';
 import { HOST_VERSION } from './version.ts';
 
 export interface CreateHostOptions {
@@ -12,6 +13,7 @@ export interface CreateHostOptions {
   printerAdapter?: string;
   log?: Logger;
   configFile?: string;
+  historyPath?: string;
 }
 
 export interface Host {
@@ -20,12 +22,29 @@ export interface Host {
 }
 
 /**
+ * Pick the printing implementation.
+ *
+ * Windows on Windows, mock elsewhere - and `printerAdapter` reports which,
+ * because a green tick in the popup backed by a mock would be a lie told to the
+ * user's UI. `BRB_PRINTER` forces a choice, which is how the pipeline gets
+ * exercised end to end on a machine that has no spooler at all.
+ */
+function selectPrinter(env: NodeJS.ProcessEnv): { printer: PrinterAdapter; name: string } {
+  const forced = env['BRB_PRINTER'];
+  if (forced === 'mock') return { printer: new MockPrinterAdapter(), name: 'mock' };
+  if (forced === 'windows') return { printer: new WindowsPrinterAdapter(), name: 'windows' };
+
+  if (process.platform === 'win32') {
+    return { printer: new WindowsPrinterAdapter(), name: 'windows' };
+  }
+  return { printer: new MockPrinterAdapter(), name: 'mock' };
+}
+
+/**
  * Assemble the host.
  *
- * The printer is injected. Until phase 6 there is no Windows implementation, so
- * the default is the mock - and `printerAdapter` says so, which is why
- * GET_STATUS reports the implementation name: a green tick backed by a mock
- * would be a lie told to the user's UI.
+ * Everything the dispatcher needs is passed in, so the whole message surface can
+ * be driven in tests without touching a real config file or a real spooler.
  */
 export function createHost(options: CreateHostOptions = {}): Host {
   const log = options.log ?? createLogger({ dir: logDir() });
@@ -35,12 +54,15 @@ export function createHost(options: CreateHostOptions = {}): Host {
   if (config.error !== undefined) log.warn(config.error);
   if (!config.present) log.info(`Aucune configuration à ${file}, valeurs par défaut utilisées.`);
 
+  const selected = selectPrinter(process.env);
   const context: HostContext = {
     version: HOST_VERSION,
     config,
-    printer: options.printer ?? new MockPrinterAdapter(),
-    printerAdapter: options.printerAdapter ?? 'mock',
+    printer: options.printer ?? selected.printer,
+    printerAdapter: options.printerAdapter ?? selected.name,
     log,
+    configFile: file,
+    historyPath: options.historyPath ?? join(dataDir(), 'print-history.json'),
   };
 
   return {

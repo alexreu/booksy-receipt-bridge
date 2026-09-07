@@ -31,6 +31,9 @@ describe('DEFAULT_CONFIG', () => {
       autoPrint: false,
       showPreview: true,
       confidenceThreshold: 0.9,
+      // Empty: the Downloads folder is always allowed, nothing else is
+      // (plan section 23).
+      allowedDirs: [],
     });
   });
 });

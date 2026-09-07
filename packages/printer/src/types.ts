@@ -1,9 +1,7 @@
-export interface Printer {
-  name: string;
-  isDefault?: boolean;
-  /** Driver-reported status, free-form. */
-  status?: string;
-}
+// Declared in @brb/shared so the extension's options page can be typed against
+// it without pulling the renderer in through this package.
+export type { Printer } from '@brb/shared';
+import type { Printer } from '@brb/shared';
 
 export interface PrinterConfig {
   /** Windows printer name, e.g. "EPSON TM-T88V Receipt5". Never hardcoded. */

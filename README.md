@@ -17,8 +17,9 @@ Le plan complet et les décisions d'architecture vivent dans
 | 3 | Renderer HTML 80 mm (aperçu) | fait |
 | 4 | Native Host : protocole, `PING`, `GET_STATUS`, CLI autonome | fait |
 | 5 | Extension MV3 reliée au host, popup de statut | fait |
-| 1.5b | Spike matériel : spooler RAW + TM-T88V | **en attente d'un poste Windows** |
-| 6 → 10 | Imprimante Windows, téléchargements, DOM Booksy, installeur, auto-print | à venir |
+| 6a | Impression : `LIST_PRINTERS`, `PRINT_TEST`, `PRINT_RECEIPT`, page Options | fait |
+| 1.5b / 6b | Spike matériel et `WindowsPrinterAdapter` sur imprimante réelle | **en attente d'un poste Windows** |
+| 7 → 10 | Téléchargements, DOM Booksy, installeur, auto-print | à venir |
 
 ## Architecture
 
@@ -129,6 +130,10 @@ pnpm host status
 pnpm host ticket ./fixtures/booksy/ticket-996.pdf
 pnpm host html ./fixtures/booksy/ticket-996.pdf --out debug/apercu.html
 ```
+
+Sur un poste sans imprimante, `BRB_PRINTER=mock` force le pilote simulé ; le
+popup et la page Options annoncent alors explicitement que la liste ne contient
+pas de vraies imprimantes.
 
 Tester le protocole Native Messaging sans Chrome — le probe spawn le host et
 parle le vrai format préfixé en longueur :

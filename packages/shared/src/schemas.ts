@@ -30,6 +30,7 @@ export const ConfigPatchSchema = z.object({
       autoPrint: z.boolean().optional(),
       showPreview: z.boolean().optional(),
       confidenceThreshold: z.number().min(0).max(1).optional(),
+      allowedDirs: z.array(z.string()).optional(),
     })
     .optional(),
 });
@@ -55,7 +56,11 @@ export const NativeMessageSchema = z.discriminatedUnion('type', [
   z.object({
     id,
     type: z.literal('PRINT_RECEIPT'),
-    payload: z.object({ source: ReceiptSourceSchema, dedupeKey: z.string().optional() }),
+    payload: z.object({
+      source: ReceiptSourceSchema,
+      dedupeKey: z.string().optional(),
+      trigger: z.enum(['user', 'auto']).optional(),
+    }),
   }),
   z.object({ id, type: z.literal('PRINT_TEST') }),
 ]);

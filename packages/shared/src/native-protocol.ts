@@ -9,6 +9,7 @@
  * from drifting apart.
  */
 import type { NativeError } from './errors.ts';
+import type { ParseWarning } from './receipt.ts';
 
 /**
  * Chrome caps a single host -> extension message at 1 MB and drops anything
@@ -43,6 +44,7 @@ export interface ConfigPatch {
     autoPrint?: boolean;
     showPreview?: boolean;
     confidenceThreshold?: number;
+    allowedDirs?: string[];
   };
 }
 
@@ -61,8 +63,18 @@ export type NativeMessage =
   | {
       id: string;
       type: 'PRINT_RECEIPT';
-      /** `dedupeKey` guards against double prints (plan section 54). */
-      payload: { source: ReceiptSource; dedupeKey?: string };
+      payload: {
+        source: ReceiptSource;
+        /** Guards against double prints (plan section 54). */
+        dedupeKey?: string;
+        /**
+         * Who asked. `auto` makes the host enforce its confidence threshold and
+         * refuse below it (plan section 34); `user` prints what was read and
+         * reports the confidence alongside. The rule lives in the host because
+         * the host owns the configuration (plan section 68).
+         */
+        trigger?: 'user' | 'auto';
+      };
     }
   | { id: string; type: 'PRINT_TEST' };
 
@@ -85,6 +97,75 @@ export interface NativeResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: NativeError;
+}
+
+/** A print queue as the platform reports it. */
+export interface Printer {
+  name: string;
+  isDefault?: boolean;
+  /** Driver-reported status, free-form. */
+  status?: string;
+}
+
+/**
+ * Host configuration (plan section 38).
+ *
+ * Declared here so the options page can be typed against it without importing
+ * the host's Zod schema. `config.test.ts` asserts the two agree.
+ */
+export interface BridgeConfig {
+  printer: {
+    /** Empty until configured. No model is hardcoded (plan section 65). */
+    name: string;
+    paperWidth: number;
+    printableWidth: number;
+    columns: number;
+  };
+  printing: {
+    autoPrint: boolean;
+    showPreview: boolean;
+    confidenceThreshold: number;
+    /**
+     * Extra directories a receipt may be read from, on top of the user's
+     * Downloads folder (plan section 23). Empty by default.
+     */
+    allowedDirs: string[];
+  };
+}
+
+/** `LIST_PRINTERS` reply. */
+export interface ListPrintersData {
+  printers: Printer[];
+  /** Which implementation answered, e.g. "windows" or "mock". */
+  adapter: string;
+}
+
+/** `GET_CONFIG` and `SET_CONFIG` reply. */
+export interface ConfigData {
+  config: BridgeConfig;
+  present: boolean;
+  error?: string;
+}
+
+/** `PRINT_TEST` reply. */
+export interface PrintTestData {
+  jobId?: string;
+  bytesSent?: number;
+  /** Characters the code page could not represent and had to substitute. */
+  unmapped?: string[];
+}
+
+/** `PRINT_RECEIPT` reply. */
+export interface PrintReceiptData extends PrintTestData {
+  ticketNumber: string;
+  confidence: number;
+  warnings: ParseWarning[];
+  /**
+   * True when the job was suppressed because the same receipt was printed a
+   * moment ago (plan section 54). Not an error: the caller asked twice and got
+   * one ticket, which is the intended outcome.
+   */
+  duplicate?: boolean;
 }
 
 /** `PING` reply (plan section 15). */
