@@ -1,15 +1,18 @@
-import { z } from 'zod';
-import { BRIDGE_ERROR_CODES } from './errors.ts';
+/**
+ * Native Messaging protocol types and constants (plan sections 13, 14).
+ *
+ * DELIBERATELY FREE OF ZOD. The extension needs these types and a couple of
+ * numbers; validation is the host's job (plan section 44). Importing the schemas
+ * from here would pull the whole validator into the extension bundle - it was
+ * 90 kB of it before this split - for code that never runs in the browser.
+ * The schemas live in `@brb/shared/schemas`, and a type-level test keeps the two
+ * from drifting apart.
+ */
+import type { NativeError } from './errors.ts';
 
 /**
- * Native Messaging protocol (plan sections 13, 14, 44).
- *
- * Every inbound message is validated with Zod before dispatch. Unknown types are
- * rejected: the host never trusts its stdin.
- *
- * SIZE LIMIT: Chrome caps a single host -> extension message at 1 MB. Anything that
- * could grow (a rendered preview, a printer list, a decoded ticket) must be checked
- * against MAX_RESPONSE_BYTES before being written.
+ * Chrome caps a single host -> extension message at 1 MB and drops anything
+ * larger with no error on either side, so the host checks before writing.
  */
 export const MAX_RESPONSE_BYTES = 1_000_000;
 
@@ -19,70 +22,50 @@ export const PROTOCOL_VERSION = 1;
 /**
  * How the host obtains the PDF.
  *
- * `path` is the preferred route (plan section 22): the download detector hands over
- * a local path and the host opens the file itself, so no PDF crosses the messaging
- * channel. `bytes` exists because the injected Booksy button has no local file - it
- * fetches the PDF with the page session and only ever holds an ArrayBuffer.
+ * `path` is the preferred route (plan section 22): the download detector hands
+ * over a local path and the host opens the file itself, so no PDF crosses the
+ * messaging channel. `bytes` exists because the injected Booksy button has no
+ * local file - it fetches the PDF with the page session and only ever holds an
+ * ArrayBuffer.
  */
-export const ReceiptSourceSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('path'), path: z.string().min(1) }),
-  z.object({ kind: z.literal('bytes'), base64: z.string().min(1) }),
-]);
-export type ReceiptSource = z.infer<typeof ReceiptSourceSchema>;
+export type ReceiptSource =
+  | { kind: 'path'; path: string }
+  | { kind: 'bytes'; base64: string };
 
-export const PrinterConfigPatchSchema = z.object({
-  name: z.string().min(1).optional(),
-  paperWidth: z.number().positive().optional(),
-  printableWidth: z.number().positive().optional(),
-  columns: z.number().int().positive().optional(),
-});
+export interface ConfigPatch {
+  printer?: {
+    name?: string;
+    paperWidth?: number;
+    printableWidth?: number;
+    columns?: number;
+  };
+  printing?: {
+    autoPrint?: boolean;
+    showPreview?: boolean;
+    confidenceThreshold?: number;
+  };
+}
 
-export const PrintingConfigPatchSchema = z.object({
-  autoPrint: z.boolean().optional(),
-  showPreview: z.boolean().optional(),
-  confidenceThreshold: z.number().min(0).max(1).optional(),
-});
+export type NativeMessage =
+  | { id: string; type: 'PING' }
+  | { id: string; type: 'GET_STATUS' }
+  | { id: string; type: 'LIST_PRINTERS' }
+  | { id: string; type: 'GET_CONFIG' }
+  | { id: string; type: 'SET_CONFIG'; payload: ConfigPatch }
+  | { id: string; type: 'PARSE_RECEIPT'; payload: { source: ReceiptSource } }
+  | {
+      id: string;
+      type: 'RENDER_RECEIPT';
+      payload: { source: ReceiptSource; format: 'html' | 'text' };
+    }
+  | {
+      id: string;
+      type: 'PRINT_RECEIPT';
+      /** `dedupeKey` guards against double prints (plan section 54). */
+      payload: { source: ReceiptSource; dedupeKey?: string };
+    }
+  | { id: string; type: 'PRINT_TEST' };
 
-export const ConfigPatchSchema = z.object({
-  printer: PrinterConfigPatchSchema.optional(),
-  printing: PrintingConfigPatchSchema.optional(),
-});
-export type ConfigPatch = z.infer<typeof ConfigPatchSchema>;
-
-/** Payload shape per message type. `undefined` means "no payload". */
-export const NativeMessageSchema = z.discriminatedUnion('type', [
-  z.object({ id: z.string().min(1), type: z.literal('PING') }),
-  z.object({ id: z.string().min(1), type: z.literal('GET_STATUS') }),
-  z.object({ id: z.string().min(1), type: z.literal('LIST_PRINTERS') }),
-  z.object({ id: z.string().min(1), type: z.literal('GET_CONFIG') }),
-  z.object({
-    id: z.string().min(1),
-    type: z.literal('SET_CONFIG'),
-    payload: ConfigPatchSchema,
-  }),
-  z.object({
-    id: z.string().min(1),
-    type: z.literal('PARSE_RECEIPT'),
-    payload: z.object({ source: ReceiptSourceSchema }),
-  }),
-  z.object({
-    id: z.string().min(1),
-    type: z.literal('RENDER_RECEIPT'),
-    payload: z.object({ source: ReceiptSourceSchema, format: z.enum(['html', 'text']) }),
-  }),
-  z.object({
-    id: z.string().min(1),
-    type: z.literal('PRINT_RECEIPT'),
-    payload: z.object({
-      source: ReceiptSourceSchema,
-      /** Guards against double prints (plan section 54). */
-      dedupeKey: z.string().optional(),
-    }),
-  }),
-  z.object({ id: z.string().min(1), type: z.literal('PRINT_TEST') }),
-]);
-
-export type NativeMessage = z.infer<typeof NativeMessageSchema>;
 export type NativeMessageType = NativeMessage['type'];
 
 export const NATIVE_MESSAGE_TYPES = [
@@ -97,17 +80,11 @@ export const NATIVE_MESSAGE_TYPES = [
   'PRINT_TEST',
 ] as const satisfies readonly NativeMessageType[];
 
-export const NativeErrorSchema = z.object({
-  code: z.enum(BRIDGE_ERROR_CODES),
-  message: z.string(),
-  detail: z.string().optional(),
-});
-
 export interface NativeResponse<T = unknown> {
   id: string;
   success: boolean;
   data?: T;
-  error?: z.infer<typeof NativeErrorSchema>;
+  error?: NativeError;
 }
 
 /** `PING` reply (plan section 15). */
@@ -123,6 +100,8 @@ export interface StatusData {
   version: string;
   protocolVersion: number;
   printerConfigured: boolean;
+  /** The configured printer's name, so the popup can show it (plan section 17). */
+  printerName?: string;
   printerFound: boolean;
   configPresent: boolean;
   /**
@@ -134,23 +113,4 @@ export interface StatusData {
   printerAdapter: string;
   /** Message types this host actually implements. */
   supported: NativeMessageType[];
-}
-
-/**
- * Parse a raw stdin value into a known message.
- *
- * Returns a discriminated result rather than throwing: a malformed message must
- * produce a NativeResponse with INVALID_MESSAGE, not crash the host.
- */
-export function parseNativeMessage(
-  raw: unknown,
-): { ok: true; message: NativeMessage } | { ok: false; issues: string[] } {
-  const result = NativeMessageSchema.safeParse(raw);
-  if (result.success) return { ok: true, message: result.data };
-  return {
-    ok: false,
-    issues: result.error.issues.map(
-      (issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`,
-    ),
-  };
 }

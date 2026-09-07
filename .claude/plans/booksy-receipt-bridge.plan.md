@@ -177,7 +177,7 @@ Ordre final :
 | 3 | Renderer HTML 80 mm (aperçu) | **fait** — AC12, AC13 en tests purs |
 | 1.5b | Spike matériel : spooler RAW + TM-T88V | AC14, AC15 — dès que le PC est dispo |
 | 4 | Native Host : protocole, Zod, `PING`, `GET_STATUS`, CLI | **fait** — host pilotable sans Chrome |
-| 5 | Extension MV3 : SW, popup, `NativeHostClient` | AC3, AC4 |
+| 5 | Extension MV3 : SW, popup, `NativeHostClient` | **fait** — AC3, AC4 |
 | 6 | `WindowsPrinterAdapter` : `LIST_PRINTERS`, `PRINT_TEST`, `PRINT_RECEIPT` | AC5, AC6, AC14, AC15 |
 | 7 | `chrome.downloads` + déduplication | AC16, AC17 |
 | 8 | `BooksyDomAdapter` + injection bouton | AC18 (fallback intact) |
@@ -371,6 +371,102 @@ Quatre choses découvertes en implémentant, à retenir pour les phases suivante
 
 Le spike 1.5b attend **un poste Windows**. Le protocole est dans
 `spikes/escpos-raw/README.md`. C'est le seul blocage restant côté matériel.
+
+---
+
+## 11. Phase 5 — extension ↔ Native Host, livrée le 2026-09-07
+
+349 tests, 24 fichiers. Quatre portes à exit 0. JavaScript de l'extension :
+**7,4 kB**.
+
+### Chaîne respectée (§9)
+
+```
+popup / content script ─→ chrome.runtime.sendMessage
+                       ─→ service worker
+                       ─→ chrome.runtime.sendNativeMessage ─→ host
+```
+
+Le service worker est le **seul** à parler au host. Le routeur vérifie
+`sender.id === chrome.runtime.id` : `onMessage` est joignable depuis les content
+scripts, qui tournent au contact d'une page web, et sans ce contrôle le worker
+serait un relais ouvert vers le host. Le protocole interne est un **ensemble
+fermé d'intentions** (`GET_HOST_STATE`, `PING_HOST`), pas un passe-plat : un
+appelant ne peut pas nommer un type de message natif et le faire relayer. Testé.
+
+### Zod sorti du bundle de l'extension
+
+`@brb/shared` réexportait les schémas Zod, et l'extension embarquait **90 kB** de
+validateur pour du code qui n'y tourne jamais — la validation est le travail du
+host (§44).
+
+`native-protocol.ts` ne contient plus que les types et les constantes ; les
+schémas vivent dans `@brb/shared/schemas`. Le chunk est passé de **90,29 kB à
+3,56 kB**.
+
+L'union `NativeMessage` est donc écrite à la main **et** dérivée de Zod. Ce qui
+rend cette duplication sûre : `expectTypeOf<ValidatedNativeMessage>().toEqualTypeOf<NativeMessage>()`
+dans `schemas.test.ts`, vérifié par `pnpm typecheck`. Et un garde-fou de budget
+dans la CI (60 kB) pour repérer une régression d'ordre de grandeur.
+
+### Décisions
+
+| Décision | Raison |
+|---|---|
+| `NativeHostClient.send` renvoie une `NativeResponse`, **ne lève jamais** | Un host absent et un host qui répond une erreur sont tous deux « ça n'a pas marché, voici pourquoi » ; l'UI a besoin du même chemin de code. |
+| Trois codes d'erreur de transport au lieu d'un | `NATIVE_HOST_NOT_FOUND`, `NATIVE_HOST_FORBIDDEN`, `NATIVE_HOST_CRASHED`. Trois actions différentes : installer, réenregistrer avec le bon ID, consulter les logs. Dire « installez-le » à quelqu'un qui l'a déjà l'envoie dans la mauvaise direction. |
+| Le texte brut de Chrome est toujours conservé dans `detail` | Chrome donne ces erreurs en anglais sans code ; matcher sur le texte est la seule option, donc un libellé reformulé doit rester diagnosticable. |
+| `HostState` est une union discriminée | Le popup ne peut pas rendre un demi-état : « connecté mais version inconnue » n'est pas représentable. |
+| `PING` puis `GET_STATUS` | PING est la réponse la moins chère à « y a-t-il quelque chose ». Si les protocoles divergent, inutile d'interpréter un `StatusData` dont la forme a pu changer. |
+| Bouton « Imprimer un test » piloté par `status.supported` | Il s'allumera seul quand la phase 6 arrivera, et il ne peut pas promettre ce que le service installé ne sait pas faire. |
+| `StatusData.printerName` ajouté | Le §17 veut le nom dans le popup ; le host le connaissait sans le remonter. |
+| Pas de page Options | `GET_CONFIG` / `SET_CONFIG` ne sont pas implémentés (le host fait `PING` + `GET_STATUS`). Une page de réglages sans rien à régler serait un mensonge d'interface. Elle arrive en phase 6. |
+| Pas de React | Une vue quasi statique. Le §6 l'autorisait sans l'imposer. |
+
+### Installation du host en développement
+
+```bash
+pnpm host:install              # tous les navigateurs Chromium détectés
+pnpm host:install --id XXXX    # ajouter un second ID (Chrome vs Edge, §52)
+pnpm host:install --uninstall
+```
+
+Écrit le manifest dans les six répertoires `NativeMessagingHosts` détectés, avec
+`allowed_origins` limité à l'ID exact — jamais de wildcard (§11).
+
+**Un vrai piège trouvé là.** Le wrapper appelait `node_modules/.bin/tsx`, qui est
+un script shell faisant `exec node`. Un host natif est lancé sans shell, depuis
+un répertoire imprévisible et avec un environnement épuré : reproduit avec
+`env -i` depuis `/`, il mourait sur `node: not found` — fatal avec node installé
+par nvm ou fnm, ce qui est le cas ici. Le wrapper utilise désormais le chemin
+absolu de node et de `tsx/dist/cli.mjs`. Revérifié sous `env -i` : exit 0, trame
+correcte, **zéro octet résiduel** sur stdout.
+
+### Le contrôle visuel ne marchait pas ici — et c'est devenu un test
+
+Le panneau d'aperçu ne rend que des instantanés statiques : le JS de la page ne
+s'exécute pas, donc un harness de popup y reste figé sur son état initial.
+
+Plutôt que de renoncer, le câblage DOM a été extrait dans `popup/dom.ts` et il
+est exercé **sous jsdom contre le vrai `index.html`**. C'est mieux que le
+contrôle à l'œil : le test échoue si un `id` est renommé dans l'un des deux
+fichiers, ce qui dans un navigateur ne se manifeste que par un popup vide.
+
+### Ce que la phase 5 ne prouve pas
+
+Le va-et-vient réel dans un navigateur n'est **pas** vérifié de mon côté : le
+host a été testé dans ses conditions de lancement réelles, et la logique de
+l'extension sous tests unitaires, mais personne n'a encore chargé l'extension
+dans Chrome et ouvert le popup. C'est une étape manuelle :
+
+```bash
+pnpm build:extension && pnpm host:install
+```
+
+puis `chrome://extensions` → mode développeur → « Charger l'extension non
+empaquetée » → `apps/extension/dist`, et ouvrir le popup. Attendu : « Service
+connecté », configuration et imprimante configurée cochées, imprimante détectée
+en échec avec la mention du pilote `mock`.
 
 ---
 

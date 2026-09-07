@@ -7,12 +7,25 @@
     <link rel="stylesheet" href="./popup.css" />
   </head>
   <body>
-    <main id="app">
+    <main>
       <h1>Booksy Receipt Bridge</h1>
-      <p class="status" data-state="unknown">Service&nbsp;: non vérifié</p>
-      <p class="hint">
-        La connexion au service local arrive en phase&nbsp;5.
-      </p>
+
+      <p class="summary" data-state="checking" id="summary">Vérification du service…</p>
+
+      <ul class="checklist" id="checklist"></ul>
+
+      <section class="printer" id="printer" hidden>
+        <h2>Imprimante</h2>
+        <p id="printer-name">—</p>
+      </section>
+
+      <div class="actions">
+        <button type="button" id="print-test" disabled>Imprimer un test</button>
+        <button type="button" id="retry">Revérifier</button>
+      </div>
+
+      <p class="hint" id="hint"></p>
+      <p class="footer" id="footer"></p>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>

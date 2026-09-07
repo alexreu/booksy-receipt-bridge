@@ -2,13 +2,13 @@ import {
   BRIDGE_ERROR_MESSAGES,
   MAX_RESPONSE_BYTES,
   PROTOCOL_VERSION,
-  parseNativeMessage,
   type BridgeErrorCode,
   type NativeMessageType,
   type NativeResponse,
   type PingData,
   type StatusData,
 } from '@brb/shared';
+import { parseNativeMessage } from '@brb/shared/schemas';
 import type { Printer, PrinterAdapter } from '@brb/printer';
 import type { ConfigState } from '../config/config.ts';
 import type { Logger } from '../logging/logger.ts';
@@ -95,6 +95,7 @@ async function status(context: HostContext): Promise<StatusData> {
     version: context.version,
     protocolVersion: PROTOCOL_VERSION,
     printerConfigured,
+    ...(printerConfigured ? { printerName: configuredName } : {}),
     printerFound,
     configPresent: context.config.present,
     printerAdapter: context.printerAdapter,

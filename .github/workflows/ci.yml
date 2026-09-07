@@ -51,6 +51,20 @@ jobs:
             exit 1
           fi
 
+      - name: Check the extension bundle stayed small
+        shell: bash
+        run: |
+          # Guards against re-importing the Zod schemas from @brb/shared. That
+          # cost 90 kB of validator in a bundle that never validates anything -
+          # the host does. The budget is deliberately loose; the point is to
+          # notice an order-of-magnitude regression.
+          total=$(find apps/extension/dist -name '*.js' -exec cat {} + | wc -c)
+          echo "extension javascript: ${total} bytes"
+          if [ "$total" -gt 60000 ]; then
+            echo "extension bundle over budget (60000 bytes)" >&2
+            exit 1
+          fi
+
       - name: Upload the extension bundle
         if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4

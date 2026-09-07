@@ -1,20 +1,40 @@
 /**
  * Service worker.
  *
- * Phase 0 stub. It exists so the MV3 build has a real entry point and so the
- * extension loads without error; it holds no native messaging yet (phase 5), no
- * download detection (phase 7) and no printing.
+ * The only part of the extension that talks to the native host (plan section 9):
  *
- * Design constraint recorded here because it shapes every later phase: an MV3
- * service worker is evicted after about 30 seconds idle, so this worker must
- * never become the home of long-lived state. Configuration lives in the native
- * host (plan section 18), and native calls are one-shot.
+ *   Booksy DOM -> content script -> chrome.runtime.sendMessage
+ *              -> this worker    -> chrome.runtime.sendNativeMessage -> host
+ *
+ * It holds no state. An MV3 worker is evicted after about 30 seconds idle, so
+ * anything it remembered would vanish unpredictably; the configuration lives in
+ * the host (plan section 18) and every native call is one-shot.
  */
+import { ChromeNativeHostClient } from '../messaging/client.ts';
+import { handleExtensionMessage } from './router.ts';
 
-const NATIVE_HOST_NAME = 'com.alexdevlab.booksy_receipt_bridge';
+const client = new ChromeNativeHostClient((application, message) =>
+  chrome.runtime.sendNativeMessage(application, message),
+);
 
-chrome.runtime.onInstalled.addListener((details) => {
-  console.info('[brb] installed', details.reason, 'host:', NATIVE_HOST_NAME);
+chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
+  handleExtensionMessage(raw, { id: sender.id }, {
+    client,
+    extensionId: chrome.runtime.id,
+    log: (message) => console.warn('[brb]', message),
+  })
+    .then(sendResponse)
+    .catch((error: unknown) => {
+      sendResponse({
+        kind: 'ERROR',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+
+  // Keep the message channel open for the async reply.
+  return true;
 });
 
-export {};
+chrome.runtime.onInstalled.addListener((details) => {
+  console.info('[brb] installé', details.reason, '| id', chrome.runtime.id);
+});

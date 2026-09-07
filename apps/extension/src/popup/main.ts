@@ -1,35 +1,37 @@
 /**
- * Popup entry point.
+ * Popup.
  *
- * Phase 0 scope: report what the extension knows about itself. The native host
- * status arrives in phase 5. No React - plan section 6 allows it, but four entry
- * points of near-static markup do not need a framework yet.
- *
- * The extension ID is shown because the installer needs it: the native host
- * manifest lists exact origins and wildcards are forbidden (plan section 11), so
- * whoever registers the host has to read this value off a real install.
+ * Thin by design: it asks the service worker for the host state, hands it to
+ * `popupView` and lets `applyPopupView` write it out. The popup never talks to
+ * the native host itself - the worker owns that channel (plan section 9).
  */
+import type { ExtensionRequest, ExtensionResponse } from '../messaging/protocol.ts';
+import type { HostState } from '../messaging/state.ts';
+import { applyPopupView } from './dom.ts';
+import { popupView } from './render.ts';
 
-interface PopupElements {
-  status: HTMLElement;
-  hint: HTMLElement;
+async function ask(request: ExtensionRequest): Promise<HostState> {
+  const response = (await chrome.runtime.sendMessage(request)) as ExtensionResponse | undefined;
+  if (response === undefined || response.kind === 'ERROR') {
+    return {
+      kind: 'unavailable',
+      error: {
+        code: 'NATIVE_HOST_NOT_FOUND',
+        message: response?.message ?? 'Le service ne répond pas.',
+      },
+    };
+  }
+  return response.state;
 }
 
-function elements(): PopupElements | null {
-  const status = document.querySelector<HTMLElement>('.status');
-  const hint = document.querySelector<HTMLElement>('.hint');
-  if (status === null || hint === null) return null;
-  return { status, hint };
+async function refresh(): Promise<void> {
+  applyPopupView(document, popupView({ kind: 'checking' }));
+  applyPopupView(document, popupView(await ask({ kind: 'GET_HOST_STATE' })));
 }
 
-function render(): void {
-  const found = elements();
-  if (found === null) return;
-
-  const { version } = chrome.runtime.getManifest();
-  found.status.textContent = 'Service : non vérifié';
-  found.status.dataset.state = 'unknown';
-  found.hint.textContent = `Version ${version} · ID ${chrome.runtime.id}`;
-}
-
-document.addEventListener('DOMContentLoaded', render);
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('retry')?.addEventListener('click', () => {
+    void refresh();
+  });
+  void refresh();
+});

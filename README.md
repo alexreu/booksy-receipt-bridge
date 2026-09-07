@@ -16,8 +16,9 @@ Le plan complet et les décisions d'architecture vivent dans
 | 2 | Parser Booksy | fait |
 | 3 | Renderer HTML 80 mm (aperçu) | fait |
 | 4 | Native Host : protocole, `PING`, `GET_STATUS`, CLI autonome | fait |
+| 5 | Extension MV3 reliée au host, popup de statut | fait |
 | 1.5b | Spike matériel : spooler RAW + TM-T88V | **en attente d'un poste Windows** |
-| 5 → 10 | Extension MV3, imprimante Windows, téléchargements, installeur, auto-print | à venir |
+| 6 → 10 | Imprimante Windows, téléchargements, DOM Booksy, installeur, auto-print | à venir |
 
 ## Architecture
 
@@ -144,8 +145,20 @@ Construire l'extension :
 pnpm build:extension
 ```
 
+Enregistrer le host pour le développement, sans quoi le popup n'a rien à
+interroger :
+
+```bash
+pnpm host:install
+```
+
+Le manifest est écrit dans chaque répertoire `NativeMessagingHosts` détecté, avec
+`allowed_origins` limité à l'identifiant exact de l'extension — les wildcards
+sont interdits. `pnpm host:install --uninstall` fait le ménage.
+
 Puis dans Chrome : `chrome://extensions` → mode développeur → « Charger
-l'extension non empaquetée » → `apps/extension/dist`.
+l'extension non empaquetée » → `apps/extension/dist`. Le popup doit afficher
+« Service connecté ».
 
 ## Données sensibles
 

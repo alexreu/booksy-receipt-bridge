@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import {
-  MAX_RESPONSE_BYTES,
-  NATIVE_MESSAGE_TYPES,
-  parseNativeMessage,
-} from './native-protocol.ts';
+import { expectTypeOf } from 'vitest';
+import { MAX_RESPONSE_BYTES, NATIVE_MESSAGE_TYPES, type NativeMessage } from './native-protocol.ts';
+import { parseNativeMessage, type ValidatedNativeMessage } from './schemas.ts';
+
+describe('schema and type parity', () => {
+  // The message union is hand-written in native-protocol.ts so the extension
+  // can use it without bundling Zod, and derived from Zod here. These two
+  // assertions are what stop the copies from drifting: they are checked by
+  // `pnpm typecheck`, not at runtime.
+  it('describes the same shapes both ways', () => {
+    expectTypeOf<ValidatedNativeMessage>().toEqualTypeOf<NativeMessage>();
+  });
+});
 
 describe('parseNativeMessage', () => {
   it('accepts a bare PING', () => {
