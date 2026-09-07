@@ -17,6 +17,7 @@
     "gen:extension-key": "node scripts/gen-extension-key.mjs"
   },
   "devDependencies": {
+    "@brb/booksy-parser": "workspace:*",
     "@brb/pdf-inspector": "workspace:*",
     "@brb/printer": "workspace:*",
     "@brb/receipt-renderer": "workspace:*",

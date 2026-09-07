@@ -173,7 +173,7 @@ Ordre final :
 | 0 | Monorepo, git, CI Windows, clé d'extension, gitignore PII | lint + typecheck + test verts |
 | 1 | PDF Inspector (`pnpm inspect`) | JSON de coordonnées lisible produit |
 | **1.5a** | **ESC/POS emitter + décodeur + FilePrinterAdapter (macOS)** | **snapshots 42 colonnes, € et accents encodés** |
-| 2 | Parser Booksy (`parseBooksyReceipt`) | AC7–AC11 sur PDF réel, snapshots |
+| 2 | Parser Booksy (`parseBooksyReceipt`) | **fait** — AC7–AC11 sur PDF réel, confidence 1.0 |
 | 3 | `TicketLayout` + emitters HTML / texte, câblage complet | AC12, AC13 en tests purs |
 | 1.5b | Spike matériel : spooler RAW + TM-T88V | AC14, AC15 — dès que le PC est dispo |
 | 4 | Native Host : protocole, Zod, `PING`, `GET_STATUS`, CLI de test | host pilotable sans Chrome |
@@ -369,9 +369,68 @@ Quatre choses découvertes en implémentant, à retenir pour les phases suivante
 
 ### Prochaine action bloquante
 
-La phase 2 attend **un vrai PDF Booksy** dans `fixtures/booksy/`. Rien d'autre ne
-la débloque. En attendant, `fixtures/booksy/sample-synthetic.anon.pdf` (généré,
-sans données client) permet d'exercer l'inspecteur.
+Le spike 1.5b attend **un poste Windows**. Le protocole est dans
+`spikes/escpos-raw/README.md`. C'est le seul blocage restant côté matériel.
+
+---
+
+## 9. Phase 2 — parser, livrée le 2026-09-07
+
+Faite sur `recu-1167.pdf` (reçu réel, non committé — capté par la règle PII).
+
+**Résultat de bout en bout** : PDF → `parseBooksyReceipt` → `Receipt` →
+`TicketLayout` → ESC/POS. Confidence **1.0**, **0 warning**, 30 lignes,
+**0 ligne hors de la grille 42 colonnes**, 865 octets, **0 caractère substitué**.
+AC7 à AC11 satisfaits sur un document réel.
+
+### Structure du document réel
+
+1 page A4, 70 runs, couche texte présente. Deux polices : `g_d0_f1` gras,
+`g_d0_f2` normal. Sept blocs : en-tête ticket (deux colonnes, date en colonne
+droite avec **libellé au-dessus de la valeur**), établissement, table des
+prestations (en-tête sur **3 lignes**), Total TTC, table TVA (+ ligne de totaux
+en gras), Résumé paiement, bloc NF525.
+
+### Stratégie retenue : classification par type, pas par colonnes
+
+Les frontières géométriques ont été mesurées : en-têtes à x = 34/350/416/464/544,
+donc médianes à 192/383/440/504. Le `T2000` de la ligne d'article est centré à
+**438** pour une frontière à **440** — deux points de marge. Une métrique de
+police différente et il change de colonne.
+
+Les colonnes sont en revanche distinctes **par type** : `^\d+\.$` index,
+`^x\d+$` quantité, `^[A-Z]{1,3}\d{2,6}$` code TVA, `^\d+%$` taux,
+`^-?[\d ]+,\d{2} €$` montant, le reste étant le libellé. La position n'arbitre
+plus que les deux colonnes monétaires de la ligne d'article : à gauche le prix
+unitaire brut, à droite le total.
+
+Un seul champ est lu spatialement — la date de création, parce que Booksy met son
+libellé en colonne droite et sa valeur sur la ligne suivante : on prend le run le
+plus proche en dessous dont l'empan horizontal recouvre celui du libellé.
+
+### Décisions et découvertes de la phase 2
+
+| Point | Résolution |
+|---|---|
+| Les articles portent un **code** TVA (`T2000`), pas un taux | `ReceiptItem.vatCode` ajouté ; le taux est **lu** dans la table TVA et joint sur le code. Aucun calcul. |
+| `certification.signature` **absent** du reçu réel | Le scoring de confiance ne l'exige pas — sinon tout reçu authentique tomberait sous le seuil. Seul l'horodatage de signature existe. |
+| `totals.subtotal` | Lu dans la colonne « Total HT » de la ligne de totaux de la table TVA. Jamais sommé. |
+| Total TTC illisible | Le parser **refuse** (`BooksyParseError` / `INVALID_RECEIPT`) au lieu de renvoyer un `Receipt` avec un total inventé. Un ticket à 0,00 € d'apparence correcte est plus dangereux qu'un refus. |
+| Ancres et accents | pdf.js peut restituer « operation » là où la page montre « opération », selon l'encodage de police. Toutes les ancres acceptent les deux formes. |
+| Détection ancrée sur `^` | Bug corrigé : les signaux `^Total TTC` et `^\(NF525\)` étaient testés contre un texte joint par `\n` sans flag `m`, donc **deux signaux sur sept étaient morts**. La détection teste maintenant run par run. |
+| Code TVA hors table | Lu quand même comme un code (règle de forme), plus un `AMBIGUOUS_FIELD`. Le traiter comme de la prose perdait le code **et** le collait au libellé. |
+| `Nombre d'impressions` et `Créé par` | **Volontairement ignorés** (décision du 2026-09-07). Booksy compte ses impressions ; les nôtres ne l'incrémentent pas, ce qui renforce le marquage `DUPLICATA`. |
+
+### Fixtures et PII
+
+Le reçu réel ne peut pas être committé. `scripts/anonymize-inspection.ts` produit
+`fixtures/booksy/recu-1167.anon.json` (+ `.anon.pdf` régénéré) : **géométrie
+réelle conservée, chaînes identifiantes remplacées**. Le PDF régénéré se
+réinspecte à l'identique — mêmes 70 runs, mêmes 26 lignes.
+
+Le script porte un garde-fou : il **refuse d'écrire** si une chaîne d'origine
+survit dans la sortie. Ajouté après une vraie fuite — le tableau `lines` du CLI
+était recopié verbatim à côté des runs nettoyés.
 
 Le spike 1.5b attend **un poste Windows**. Le protocole est dans
 `spikes/escpos-raw/README.md`.

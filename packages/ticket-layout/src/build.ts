@@ -113,10 +113,14 @@ export function buildTicketLayout(
     const { software, softwareId, certification, signatureTimestamp, signature } =
       receipt.certification;
     separator();
-    if (software !== undefined) text(software);
-    if (softwareId !== undefined) text(`Id ${softwareId}`);
+    // Labelled rather than bare: on a real receipt "Booksy Biz 6.4337" and a
+    // lone timestamp are unreadable out of context, and this block is the part
+    // an inspection would look at.
+    if (software !== undefined) text(`Logiciel : ${software}`);
+    if (softwareId !== undefined) text(`Id logiciel : ${softwareId}`);
+    // The certification reference identifies itself, e.g. "(NF525)_B_0000-0_...".
     if (certification !== undefined) text(certification);
-    if (signatureTimestamp !== undefined) text(signatureTimestamp);
+    if (signatureTimestamp !== undefined) text(`Horodatage : ${signatureTimestamp}`);
     if (signature !== undefined) {
       text('Signature');
       text(signature);

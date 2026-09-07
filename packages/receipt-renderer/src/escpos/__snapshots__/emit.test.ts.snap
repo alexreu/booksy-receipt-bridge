@@ -42,10 +42,10 @@ TVA
 
 Carte bancaire                     44,00 €
 ------------------------------------------
-Booksy
-Id BK-1234
+Logiciel : Booksy
+Id logiciel : BK-1234
 NF525 n° 042
-2026-03-14T15:09:01.000Z
+Horodatage : 2026-03-14T15:09:01.000Z
 Signature
 MEUCIQDf9k2mQxTn4pLwR7hVb3Yc1sJZaKm5Nn8Ee2
 Rr0Tt6Uu
@@ -92,11 +92,11 @@ TVA
 
 Espèces                           222,40 €
 ------------------------------------------
-Booksy Caisse Certifiée
-Id BK-CAISSE-2026-0001-XYZ
+Logiciel : Booksy Caisse Certifiée
+Id logiciel : BK-CAISSE-2026-0001-XYZ
 Certification NF525 délivrée par Infocert
 n° 2026/0042/AB
-2026-03-14T15:09:01+01:00
+Horodatage : 2026-03-14T15:09:01+01:00
 Signature
 MEUCIQDf9k2mQxTn4pLwR7hVb3Yc1sJZaKm5Nn8Ee2
 Rr0Tt6UuAiEA7Wz1Xx4Yy9Zz0Aa1Bb2Cc3Dd4Ee5Ff

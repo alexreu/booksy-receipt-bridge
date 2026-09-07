@@ -1,0 +1,54 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`parseReceiptFromItems - the real receipt > matches the snapshot 1`] = `
+{
+  "certification": {
+    "certification": "(NF525)_B_0000-0_XxxX",
+    "signatureTimestamp": "11/08/2026, 16:08:54",
+    "software": "Booksy Biz 6.4337",
+  },
+  "customer": {
+    "id": "00000000",
+  },
+  "items": [
+    {
+      "label": "Montant libre",
+      "quantity": 1,
+      "total": 300,
+      "unitPrice": 300,
+      "vatCode": "T2000",
+      "vatRate": 20,
+    },
+  ],
+  "merchant": {
+    "address": [
+      "1 Rue Exemple Quartier Témoin, 00000, VILLE EXEMPLE, France",
+    ],
+    "nafCode": "930D",
+    "name": "SALON EXEMPLE COIFFURE",
+    "siret": "00000000000000",
+    "vatNumber": "FR00000000000",
+  },
+  "payment": {
+    "amount": 300,
+    "method": "Carte bancaire",
+  },
+  "source": "booksy",
+  "ticket": {
+    "issuedAt": "11/08/2026, 16:08:54",
+    "number": "1167",
+    "operationType": "Vente",
+  },
+  "totals": {
+    "subtotal": 250,
+    "totalTTC": 300,
+  },
+  "vat": [
+    {
+      "amount": 50,
+      "base": 250,
+      "rate": 20,
+    },
+  ],
+}
+`;

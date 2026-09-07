@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@brb/booksy-parser':
+        specifier: workspace:*
+        version: link:packages/booksy-parser
       '@brb/pdf-inspector':
         specifier: workspace:*
         version: link:packages/pdf-inspector

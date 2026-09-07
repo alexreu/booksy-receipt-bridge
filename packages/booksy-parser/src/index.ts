@@ -1,26 +1,19 @@
 /**
- * Booksy receipt parser — PHASE 2, NOT IMPLEMENTED YET.
+ * Booksy receipt parser.
  *
- * This package is deliberately empty of logic. Writing a coordinate-based parser
- * against a guessed layout is how you get a parser that fits nothing: it has to
- * be built from a real Booksy PDF, inspected first with `pnpm inspect`.
+ * Reads a Booksy PDF into the fiscal model. It is label- and type-driven rather
+ * than position-driven: see `cells.ts` for why column geometry is not trusted.
  *
- * The intended surface, for reference:
- *
- *   isBooksyReceipt(items: PdfTextItem[]): boolean
- *   parseBooksyReceipt(buffer: Uint8Array): Promise<ParseResult>
- *
- * `ParseResult` (receipt / confidence / warnings) already lives in @brb/shared,
- * so callers can be typed against it before the parser exists.
- *
- * Constraints that apply when it is written:
- *  - label- and regex-driven, with X/Y proximity and line grouping; no absolute
- *    positions (plan section 61);
- *  - never recompute a fiscal value, only report a mismatch as a warning
- *    (section 31);
- *  - `confidence` gates auto-print, default threshold 0.90 (section 34).
+ * It never recomputes a fiscal value (plan section 31). Where the document
+ * disagrees with itself, a ParseWarning is raised and the printed value is kept.
  */
 export type { ParseResult, ParseWarning, ParseWarningCode, Receipt } from '@brb/shared';
+
+export { ANCHORS, countDetectionSignals, isBooksyReceipt } from './anchors.ts';
+export { BooksyParseError } from './errors.ts';
+export { classifyCell, toCells, type Cell, type CellKind } from './cells.ts';
+export { isMoney, parseMoney, parseQuantity, parseRate } from './money.ts';
+export { parseBooksyReceipt, parseReceiptFromItems } from './parse.ts';
 
 /** Confidence below which auto-print must refuse (plan section 34). */
 export const DEFAULT_CONFIDENCE_THRESHOLD = 0.9;

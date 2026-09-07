@@ -19,7 +19,20 @@ export interface ReceiptItem {
   unitPrice?: number;
   /** Line total as printed. Never derived from quantity * unitPrice. */
   total: number;
-  /** VAT rate in percent, as printed (e.g. 20 for 20%). */
+  /**
+   * VAT code as printed on the line, e.g. "T2000".
+   *
+   * Booksy puts a CODE on the item line and the matching RATE only in the VAT
+   * summary table. Keeping the code is what lets the rate below be a lookup into
+   * that table rather than a guess.
+   */
+  vatCode?: string;
+  /**
+   * VAT rate in percent (e.g. 20 for 20%).
+   *
+   * Read from the VAT summary table, joined on `vatCode`. Still a read, never a
+   * computation.
+   */
   vatRate?: number;
   kind?: 'service' | 'product';
 }
