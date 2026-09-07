@@ -15,15 +15,21 @@
 import { createHost } from './host.ts';
 import { createLogger } from './logging/logger.ts';
 import { serve } from './messaging/serve.ts';
+import { selectMode } from './mode.ts';
 import { logDir } from './paths.ts';
 
 async function main(argv: readonly string[]): Promise<number> {
-  if (argv.length > 0) {
+  const mode = selectMode(argv);
+
+  if (mode !== 'messaging') {
     const { runCli } = await import('./cli.ts');
-    return runCli(argv);
+    return runCli(mode === 'usage' ? ['--unknown', ...argv] : argv);
   }
 
   const log = createLogger({ dir: logDir() });
+  // Recorded because the launch arguments are the only clue to how the browser
+  // started the host, and stdout cannot be used to ask.
+  log.debug(`Lancement en mode messaging, argv: ${argv.join(' ') || '(aucun)'}`);
   const host = createHost({ log });
 
   try {

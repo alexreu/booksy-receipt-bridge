@@ -5,8 +5,9 @@
  * native host it can find a manifest for, and the manifest must name this
  * extension's exact id - wildcards are forbidden (plan section 11).
  *
- *   pnpm host:install            register for every browser found
- *   pnpm host:install --id XXXX  add another extension id (Chrome vs Edge, section 52)
+ *   pnpm host:install                  register for every browser found
+ *   pnpm host:install --id XXXX        add another extension id (Chrome vs Edge, section 52)
+ *   pnpm host:install --profile <dir>  also register inside a custom --user-data-dir
  *   pnpm host:install --uninstall
  *
  * This is the DEVELOPMENT path. It points the browser at a shell wrapper that
@@ -28,6 +29,18 @@ const uninstall = argv.includes('--uninstall');
 const extraIds = argv.flatMap((argument, index) =>
   argument === '--id' ? [argv[index + 1] ?? ''] : [],
 ).filter((id) => id !== '');
+
+/**
+ * Extra `NativeMessagingHosts` directories to write into.
+ *
+ * A browser started with `--user-data-dir` looks the manifest up under THAT
+ * directory, not under the standard per-user location. Found the hard way while
+ * testing the extension in a throwaway profile: the popup reported the host as
+ * not installed even though the standard manifest was in place.
+ */
+const profileDirs = argv.flatMap((argument, index) =>
+  argument === '--profile' ? [argv[index + 1] ?? ''] : [],
+).filter((dir) => dir !== '');
 
 /** Directories a Chromium browser reads native messaging manifests from. */
 function manifestDirs(): { browser: string; dir: string }[] {
@@ -115,7 +128,13 @@ function main(): number {
     return 1;
   }
 
-  const targets = dirs.filter((entry) => existsSync(join(entry.dir, '..')));
+  const targets = [
+    ...dirs.filter((entry) => existsSync(join(entry.dir, '..'))),
+    ...profileDirs.map((dir) => ({
+      browser: `profil ${dir}`,
+      dir: join(dir, 'NativeMessagingHosts'),
+    })),
+  ];
   if (targets.length === 0) {
     process.stderr.write('Aucun navigateur Chromium détecté.\n');
     return 1;

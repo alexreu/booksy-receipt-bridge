@@ -452,21 +452,54 @@ est exercé **sous jsdom contre le vrai `index.html`**. C'est mieux que le
 contrôle à l'œil : le test échoue si un `id` est renommé dans l'un des deux
 fichiers, ce qui dans un navigateur ne se manifeste que par un popup vide.
 
-### Ce que la phase 5 ne prouve pas
+### Vérifié dans un vrai Chrome le 2026-09-07
 
-Le va-et-vient réel dans un navigateur n'est **pas** vérifié de mon côté : le
-host a été testé dans ses conditions de lancement réelles, et la logique de
-l'extension sous tests unitaires, mais personne n'a encore chargé l'extension
-dans Chrome et ouvert le popup. C'est une étape manuelle :
+Chrome 152, extension chargée, popup ouvert : **« Service connecté »**, les
+quatre lignes de la checklist renseignées, le nom d'imprimante affiché, le bouton
+de test désactivé avec son motif, et le pilote `mock` nommé explicitement.
 
-```bash
-pnpm build:extension && pnpm host:install
-```
+La chaîne complète a donc tourné : popup → service worker →
+`sendNativeMessage` → wrapper → host → trame de réponse → UI.
 
-puis `chrome://extensions` → mode développeur → « Charger l'extension non
-empaquetée » → `apps/extension/dist`, et ouvrir le popup. Attendu : « Service
-connecté », configuration et imprimante configurée cochées, imprimante détectée
-en échec avec la mention du pilote `mock`.
+**Trois pannes réelles trouvées là, qu'aucun test unitaire n'attrapait.**
+
+**1. Chrome lance le host AVEC des arguments.** `main.ts` traitait tout argument
+comme un mode CLI, donc `chrome-extension://<id>/` en argv[0] provoquait
+« Commande inconnue » et un exit 2 — que l'extension voyait comme « Native host
+has exited ». Le probe passait parce qu'il lance le host sans argument.
+
+La sélection de mode vit maintenant dans `mode.ts` : le mode messaging est le
+**défaut**, et seul un mot qui ressemble à une commande mal tapée obtient l'aide.
+Un drapeau inconnu part en messaging — se tromper sur un futur drapeau de
+navigateur tue le host, se tromper sur une faute de frappe n'affiche qu'un
+usage. Sept tests, dont la régression exacte.
+
+**2. `default_locale: "fr"` sans arborescence `_locales`.** Chrome refuse de
+charger l'extension : « Default locale was specified, but _locales subtree is
+missing. » Les libellés sont des littéraux français, il n'y avait rien à
+pointer. Retiré, et `manifest.test.ts` couvre désormais neuf invariants du
+manifest — la cohérence `default_locale`, les permissions minimales, l'absence
+de wildcard, et le fait que les chemins déclarés existent réellement.
+
+**3. `--load-extension` est ignoré par Chrome ≥ 137** sauf avec
+`--disable-features=DisableLoadExtensionCommandLineSwitch`. Silencieusement :
+aucune erreur, l'URL de l'extension ne résout simplement rien. À retenir pour
+les tests Playwright du §47. Le chargement a finalement été fait par le domaine
+CDP `Extensions.loadUnpacked`, qui a renvoyé exactement l'ID épinglé
+`ndfcmfgnelpdjgpmaelpdgoccmjcpdjm` — preuve au passage que la clé du manifest
+tient sa promesse et que `allowed_origins` correspondra.
+
+**Une découverte sur les chemins.** Un navigateur lancé avec `--user-data-dir`
+cherche le manifest du host sous **ce** répertoire, pas dans l'emplacement
+utilisateur standard. Le popup annonçait le host absent alors que le manifest
+standard était bien en place. `pnpm host:install --profile <dir>` couvre
+désormais ce cas.
+
+**Et la classification d'erreur de transport a été validée sur les vraies
+chaînes de Chrome** — les deux, successivement : `Specified native messaging host
+not found.` → `NATIVE_HOST_NOT_FOUND` → « Installez… », puis `Native host has
+exited.` → `NATIVE_HOST_CRASHED` → « Consultez les journaux ». C'est exactement
+ce que les trois codes distincts devaient acheter.
 
 ---
 

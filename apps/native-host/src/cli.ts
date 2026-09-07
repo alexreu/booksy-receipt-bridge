@@ -70,6 +70,13 @@ export async function runCli(argv: readonly string[]): Promise<number> {
     case 'escpos':
       return receiptCommand(command, rest);
 
+    case '--unknown': {
+      // main.ts routes here when argv looks like a mistyped command rather
+      // than a browser launch argument.
+      err(`Commande inconnue : ${rest[0] ?? ''}\n\n${USAGE}`);
+      return 2;
+    }
+
     default:
       err(`Commande inconnue : ${command}\n\n${USAGE}`);
       return 2;
