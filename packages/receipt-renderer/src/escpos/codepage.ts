@@ -60,6 +60,10 @@ const ASCII_FALLBACKS = new Map<string, string>([
   ['–', '-'],
   ['—', '-'],
   ['…', '...'],
+  // Booksy separates payment method from timestamp with a bullet. CP858 has no
+  // bullet but does have a middle dot (0xFA), which reads correctly on paper -
+  // falling through to '?' would look like a defect.
+  ['\u2022', '\u00b7'],
   ['œ', 'oe'],
   ['Œ', 'OE'],
   ['Ÿ', 'Y'],

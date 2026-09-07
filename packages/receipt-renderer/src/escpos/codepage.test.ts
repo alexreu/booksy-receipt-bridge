@@ -36,6 +36,15 @@ describe('encodeCp858', () => {
     expect([...encodeCp858('a\nb').bytes]).toEqual([0x61, 0x0a, 0x62]);
   });
 
+  it('substitutes a bullet with a middle dot rather than a question mark', () => {
+    // Real Booksy receipts use "Carte bancaire • 11/08/2026" in the payment
+    // summary. CP858 has no bullet; 0xFA is a middle dot and reads correctly.
+    const { bytes, unmapped } = encodeCp858('Carte bancaire \u2022 11/08');
+    expect([...bytes].includes(0xfa)).toBe(true);
+    expect([...bytes].includes(0x3f)).toBe(false);
+    expect(unmapped).toEqual(['\u2022']);
+  });
+
   it('substitutes a curly apostrophe and reports it', () => {
     // Booksy output contains typographic quotes; CP858 has none.
     const { bytes, unmapped } = encodeCp858('Tour-d’Auvergne');
