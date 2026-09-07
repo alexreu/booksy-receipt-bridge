@@ -180,7 +180,7 @@ Ordre final :
 | 5 | Extension MV3 : SW, popup, `NativeHostClient` | **fait** — AC3, AC4 |
 | 6a | `LIST_PRINTERS`, `PRINT_TEST`, `PRINT_RECEIPT`, options | **fait** — logiciel |
 | 6b | `WindowsPrinterAdapter` sur matériel | AC5, AC6, AC14, AC15 — bloqué |
-| 7 | `chrome.downloads` + déduplication | AC16, AC17 |
+| 7 | `chrome.downloads` + déduplication | **fait** — AC16, AC17 |
 | 8 | `BooksyDomAdapter` + injection bouton | AC18 (fallback intact) |
 | 9 | Installeur Windows (`Setup.exe`) | AC1, AC2, AC20 |
 | 10 | Auto-print sous seuil de confiance | — |
@@ -372,6 +372,79 @@ Quatre choses découvertes en implémentant, à retenir pour les phases suivante
 
 Le spike 1.5b attend **un poste Windows**. Le protocole est dans
 `spikes/escpos-raw/README.md`. C'est le seul blocage restant côté matériel.
+
+---
+
+## 13. Phase 7 — détection des téléchargements, livrée le 2026-09-07
+
+562 tests, 37 fichiers, quatre portes à exit 0. Extension : 22 kB.
+
+**Le workflow V1 du §4 tourne de bout en bout dans Chrome 152** : téléchargement
+→ détection → « Ticket n° 1167 · 300,00 € » dans le popup → clic → « Ticket 1167
+imprimé. » → la ligne passe à « déjà imprimé ». Vérifié en repartant d'un
+stockage de session vidé.
+
+### Le filtre du §20 aurait manqué tous les vrais reçus
+
+Le plan proposait `ticket-*.pdf`. Le fichier réellement téléchargé s'appelle
+**`recu-1167.pdf`**. Ce motif n'aurait rien détecté.
+
+Mais inspecter *tous* les PDF téléchargés — relevés bancaires, contrats — est
+plus d'accès que cette fonction n'a besoin, même si le host est local et que
+rien ne sort du poste.
+
+Le critère retenu est donc la **provenance** : un `.pdf` terminé venant de
+Booksy (URL ou referrer, suffixe sur un point pour que
+`booksy.com.evil.example` ne passe pas). Un nom de fichier en forme de reçu est
+accepté aussi, ce qui couvre un fichier re-enregistré hors du flux navigateur.
+Dans les deux cas ce n'est qu'un **candidat** : le host ouvre et décide (§21).
+Le popup dit franchement « reconnu par son nom de fichier » quand c'est le
+signal le plus faible qui a joué.
+
+Autres filtres : `.crdownload` rejeté (Chrome écrit le partiel là, l'ouvrir
+lirait un PDF tronqué), `exists: false` rejeté, `state === 'complete'` exigé.
+
+### Un vrai piège MV3, observé dans le navigateur
+
+Le log du host l'a livré : au moment du téléchargement, une connexion
+**ouverte à 23:11:41 et jamais fermée** — le processus a été tué. La détection
+n'a abouti qu'à 23:12:08, 27 secondes plus tard.
+
+Cause : un service worker MV3 peut être évincé pendant qu'un appel natif est en
+vol, et `sendNativeMessage` ne le maintient pas en vie comme le ferait un port
+ouvert. Le processus host meurt avec lui.
+
+**Plutôt que de me battre pour la durée de vie du worker, la détection est
+rendue auto-réparatrice** : `LIST_DETECTED` fait une passe de rattrapage sur les
+téléchargements récents avant de répondre. Ça couvre aussi un redémarrage du
+navigateur et une extension installée après le téléchargement. Le gestionnaire
+`onChanged` reste, en meilleure intention.
+
+Corollaire nécessaire : les ids déjà soumis au host sont mémorisés
+(`checkedDownloadIds`), **avant** l'appel et non après — sinon chaque ouverture
+du popup re-soumettrait les mêmes PDF sans rapport.
+
+### Rien n'est imprimé automatiquement
+
+La détection et l'impression sont séparées : le worker n'envoie que
+`PARSE_RECEIPT`, jamais `PRINT_RECEIPT`, et un test l'affirme. L'utilisateur se
+voit proposer un bouton.
+
+`PRINT_DETECTED` prend un **id de téléchargement, jamais un chemin** : le worker
+utilise le chemin qu'il a lui-même enregistré, donc rien dans une page ne peut
+désigner un fichier à ouvrir. Et c'est une intention en écriture, donc refusée à
+un content script.
+
+### État dans le stockage, pas en mémoire
+
+Un worker MV3 est évincé en quelques secondes ; l'événement de téléchargement le
+réveille, et il est presque certainement éteint quand l'utilisateur ouvre le
+popup. `chrome.storage.session` est la bonne étagère : elle survit à l'éviction
+et disparaît à la fermeture du navigateur, ce qui est exactement la durée de vie
+d'une liste « à l'instant ».
+
+La liste des reçus détectés a sa propre source, donc `applyPopupView` ne la
+touche pas — même raisonnement que pour `#feedback` en phase 6a.
 
 ---
 

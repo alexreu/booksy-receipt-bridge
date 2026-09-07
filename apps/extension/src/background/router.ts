@@ -2,8 +2,17 @@ import type {
   ConfigData,
   ListPrintersData,
   PingData,
+  PrintReceiptData,
   PrintTestData,
 } from '@brb/shared';
+import type { DownloadCandidate } from '../downloads/filter.ts';
+import {
+  forgetDetected,
+  readDetected,
+  updateDetected,
+  type SessionStorage,
+} from '../downloads/store.ts';
+import { reconcileDownloads } from '../downloads/watcher.ts';
 import { nextMessageId, type NativeHostClient } from '../messaging/client.ts';
 import {
   WRITING_KINDS,
@@ -31,6 +40,16 @@ export interface RouterDeps {
   client: NativeHostClient;
   /** The extension's own id, to reject anything from elsewhere. */
   extensionId: string;
+  storage: SessionStorage;
+  /**
+   * Recent downloads, newest first. Given, LIST_DETECTED catches up on any
+   * detection lost to the service worker being evicted mid-call.
+   */
+  recentDownloads?: (limit: number) => Promise<DownloadCandidate[]>;
+  /** Look one download up by id, for that same recovery pass. */
+  lookupDownload?: (downloadId: number) => Promise<DownloadCandidate | undefined>;
+  /** Show how many detected receipts still await a decision. */
+  setBadge?: (count: number) => void;
   log?: (message: string) => void;
 }
 
@@ -146,5 +165,56 @@ async function dispatch(
       }
       return { kind: 'PRINTED', data: response.data ?? {} };
     }
+
+    case 'LIST_DETECTED': {
+      if (deps.recentDownloads === undefined || deps.lookupDownload === undefined) {
+        return { kind: 'DETECTED', receipts: await readDetected(deps.storage) };
+      }
+      const receipts = await reconcileDownloads({
+        client: deps.client,
+        storage: deps.storage,
+        lookup: deps.lookupDownload,
+        recent: deps.recentDownloads,
+        ...(deps.setBadge === undefined ? {} : { setBadge: deps.setBadge }),
+        ...(deps.log === undefined ? {} : { log: deps.log }),
+      });
+      return { kind: 'DETECTED', receipts };
+    }
+
+    case 'DISMISS_DETECTED': {
+      const receipts = await forgetDetected(deps.storage, request.downloadId);
+      deps.setBadge?.(pending(receipts));
+      return { kind: 'DETECTED', receipts };
+    }
+
+    case 'PRINT_DETECTED': {
+      // The path comes from what the worker itself recorded, never from the
+      // caller: a caller names a download id, and nothing else.
+      const known = (await readDetected(deps.storage)).find(
+        (entry) => entry.downloadId === request.downloadId,
+      );
+      if (known === undefined) {
+        return { kind: 'ERROR', message: 'Ce reçu n’est plus disponible.' };
+      }
+
+      const response = await deps.client.send<PrintReceiptData>({
+        id: nextMessageId(),
+        type: 'PRINT_RECEIPT',
+        payload: { source: { kind: 'path', path: known.path }, trigger: 'user' },
+      });
+      if (!response.success || response.data === undefined) {
+        return { kind: 'ERROR', message: response.error?.message ?? 'Impression échouée.' };
+      }
+
+      const receipts = await updateDetected(deps.storage, request.downloadId, {
+        printedAt: Date.now(),
+      });
+      deps.setBadge?.(pending(receipts));
+      return { kind: 'PRINTED_RECEIPT', data: response.data };
+    }
   }
+}
+
+function pending(receipts: readonly { printedAt?: number }[]): number {
+  return receipts.filter((receipt) => receipt.printedAt === undefined).length;
 }

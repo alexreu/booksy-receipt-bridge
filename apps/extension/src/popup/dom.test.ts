@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { PROTOCOL_VERSION, type StatusData } from '@brb/shared';
-import { applyPopupView } from './dom.ts';
+import type { DetectedReceipt } from '../downloads/store.ts';
+import { detectedRows } from './detected.ts';
+import { applyDetectedRows, applyPopupView } from './dom.ts';
 import { popupView } from './render.ts';
 
 /**
@@ -191,5 +193,74 @@ describe('applyPopupView - re-render', () => {
 
     applyPopupView(document, popupView({ kind: 'connected', version: '1.4.0', status: status() }));
     expect(text('#hint')).toBe('');
+  });
+});
+
+function detected(overrides: Partial<DetectedReceipt> = {}): DetectedReceipt {
+  return {
+    downloadId: 42,
+    path: '/Users/x/Downloads/recu-1167.pdf',
+    ticketNumber: '1167',
+    totalTTC: 300,
+    confidence: 1,
+    warningCount: 0,
+    detectedAt: 1_700,
+    reason: 'booksy',
+    ...overrides,
+  };
+}
+
+describe('applyDetectedRows', () => {
+  it('hides the section when nothing was detected', () => {
+    applyDetectedRows(document, []);
+    expect(document.getElementById('detected')?.hidden).toBe(true);
+    expect(document.querySelectorAll('#detected-list li')).toHaveLength(0);
+  });
+
+  it('shows a row per receipt with its actions', () => {
+    applyDetectedRows(document, detectedRows([detected()]));
+    expect(document.getElementById('detected')?.hidden).toBe(false);
+
+    const row = document.querySelector('#detected-list li');
+    expect(row?.querySelector('.label')?.textContent).toBe('Ticket n° 1167 · 300,00 €');
+    expect(
+      [...(row?.querySelectorAll('button') ?? [])].map((b) => b.dataset['action']),
+    ).toEqual(['print-detected', 'dismiss-detected']);
+  });
+
+  it('carries the download id on the buttons, not a path', () => {
+    // One delegated listener reads these; inline handlers are forbidden by the
+    // manifest V3 content security policy.
+    applyDetectedRows(document, detectedRows([detected({ downloadId: 7 })]));
+    const button = document.querySelector<HTMLButtonElement>('#detected-list button');
+    expect(button?.dataset['downloadId']).toBe('7');
+    expect(document.getElementById('detected-list')?.innerHTML).not.toContain('/Downloads/');
+  });
+
+  it('offers only a way to remove an entry once printed', () => {
+    applyDetectedRows(document, detectedRows([detected({ printedAt: 2_000 })]));
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>('#detected-list button')];
+    expect(buttons.map((b) => b.dataset['action'])).toEqual(['dismiss-detected']);
+    expect(document.querySelector('#detected-list li')?.getAttribute('data-printed')).toBe('true');
+  });
+
+  it('shows the caution alongside the detail', () => {
+    applyDetectedRows(document, detectedRows([detected({ confidence: 0.5 })]));
+    expect(document.querySelector('#detected-list .detail')?.textContent).toContain('50 %');
+  });
+
+  it('replaces the list rather than appending to it', () => {
+    applyDetectedRows(document, detectedRows([detected()]));
+    applyDetectedRows(document, detectedRows([detected()]));
+    expect(document.querySelectorAll('#detected-list li')).toHaveLength(1);
+  });
+
+  it('is not blanked by a host state re-render', () => {
+    // The list comes from session storage, not from the host state, and the
+    // popup refreshes the two independently.
+    applyDetectedRows(document, detectedRows([detected()]));
+    applyPopupView(document, popupView({ kind: 'connected', version: '1.4.0', status: status() }));
+    expect(document.querySelectorAll('#detected-list li')).toHaveLength(1);
+    expect(document.getElementById('detected')?.hidden).toBe(false);
   });
 });

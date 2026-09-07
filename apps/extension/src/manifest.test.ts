@@ -53,8 +53,9 @@ describe('extension manifest', () => {
   });
 
   it('declares only the permissions the code uses', () => {
-    // Plan section 41. `downloads` arrives in phase 7, not before.
-    expect(manifest.permissions).toEqual(['nativeMessaging', 'storage']);
+    // Plan section 41. `downloads` is used by the finished-download watcher;
+    // `storage` holds the detected receipts in session storage.
+    expect(manifest.permissions).toEqual(['nativeMessaging', 'storage', 'downloads']);
   });
 
   it('requests no host permissions yet, and never a wildcard', () => {

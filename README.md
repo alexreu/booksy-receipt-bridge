@@ -19,7 +19,8 @@ Le plan complet et les décisions d'architecture vivent dans
 | 5 | Extension MV3 reliée au host, popup de statut | fait |
 | 6a | Impression : `LIST_PRINTERS`, `PRINT_TEST`, `PRINT_RECEIPT`, page Options | fait |
 | 1.5b / 6b | Spike matériel et `WindowsPrinterAdapter` sur imprimante réelle | **en attente d'un poste Windows** |
-| 7 → 10 | Téléchargements, DOM Booksy, installeur, auto-print | à venir |
+| 7 | Détection des téléchargements + liste dans le popup | fait |
+| 8 → 10 | DOM Booksy, installeur, auto-print | à venir |
 
 ## Architecture
 
@@ -62,6 +63,18 @@ Receipt ─→ TicketLayout ─┬→ EscPosEmitter  → octets → imprimante
 Tous les émetteurs consomment la même géométrie, donc ce qu'un snapshot montre et
 ce que l'imprimante reçoit ne peuvent pas diverger. C'est ce qui rend AC12 et
 AC13 vérifiables sur macOS.
+
+### Deux chemins, dont un déjà en place
+
+Le chemin B du §59 fonctionne : un reçu téléchargé est détecté, lu par le host,
+et proposé à l'impression dans le popup. Aucune impression n'est déclenchée
+seule.
+
+La détection filtre sur la **provenance** (un `.pdf` terminé venant de Booksy),
+pas sur le nom de fichier : le vrai reçu se télécharge sous le nom
+`recu-1167.pdf`, et le motif `ticket-*.pdf` du plan n'aurait rien attrapé. Un
+nom en forme de reçu est accepté en second signal, et le popup le dit. Dans tous
+les cas c'est le host qui confirme qu'il s'agit bien d'un reçu Booksy.
 
 ### Invariant fiscal
 

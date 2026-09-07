@@ -1,4 +1,11 @@
-import type { BridgeConfig, ConfigPatch, Printer, PrintTestData } from '@brb/shared';
+import type {
+  BridgeConfig,
+  ConfigPatch,
+  Printer,
+  PrintReceiptData,
+  PrintTestData,
+} from '@brb/shared';
+import type { DetectedReceipt } from '../downloads/store.ts';
 import type { HostState } from './state.ts';
 
 /**
@@ -16,13 +23,18 @@ export type ExtensionRequest =
   | { kind: 'LIST_PRINTERS' }
   | { kind: 'GET_CONFIG' }
   | { kind: 'SET_CONFIG'; patch: ConfigPatch }
-  | { kind: 'PRINT_TEST' };
+  | { kind: 'PRINT_TEST' }
+  | { kind: 'LIST_DETECTED' }
+  | { kind: 'PRINT_DETECTED'; downloadId: number }
+  | { kind: 'DISMISS_DETECTED'; downloadId: number };
 
 export type ExtensionResponse =
   | { kind: 'HOST_STATE'; state: HostState }
   | { kind: 'PRINTERS'; printers: Printer[]; adapter: string }
   | { kind: 'CONFIG'; config: BridgeConfig; present: boolean; error?: string }
   | { kind: 'PRINTED'; data: PrintTestData }
+  | { kind: 'PRINTED_RECEIPT'; data: PrintReceiptData }
+  | { kind: 'DETECTED'; receipts: DetectedReceipt[] }
   | { kind: 'ERROR'; message: string };
 
 /**
@@ -32,13 +44,19 @@ export type ExtensionResponse =
  * subset: it runs alongside a web page, and nothing in a page should be able to
  * repoint the printer or start a print job.
  */
-export const WRITING_KINDS: ExtensionRequest['kind'][] = ['SET_CONFIG', 'PRINT_TEST'];
+export const WRITING_KINDS: ExtensionRequest['kind'][] = [
+  'SET_CONFIG',
+  'PRINT_TEST',
+  'PRINT_DETECTED',
+  'DISMISS_DETECTED',
+];
 
 const READING_KINDS: ExtensionRequest['kind'][] = [
   'GET_HOST_STATE',
   'PING_HOST',
   'LIST_PRINTERS',
   'GET_CONFIG',
+  'LIST_DETECTED',
 ];
 
 /** Validate an inbound internal message; the worker trusts nothing by shape. */
@@ -55,6 +73,13 @@ export function parseExtensionRequest(raw: unknown): ExtensionRequest | undefine
   if (kind === 'SET_CONFIG') {
     const patch = parseConfigPatch(record['patch']);
     return patch === undefined ? undefined : { kind, patch };
+  }
+  if (kind === 'PRINT_DETECTED' || kind === 'DISMISS_DETECTED') {
+    const downloadId = record['downloadId'];
+    // An id, not a path: the caller names a receipt the worker already found,
+    // so nothing in a page can nominate a file to open.
+    if (typeof downloadId !== 'number' || !Number.isInteger(downloadId)) return undefined;
+    return { kind, downloadId };
   }
   return undefined;
 }

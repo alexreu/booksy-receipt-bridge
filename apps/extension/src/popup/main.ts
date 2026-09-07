@@ -7,7 +7,8 @@
  */
 import type { ExtensionRequest, ExtensionResponse } from '../messaging/protocol.ts';
 import type { HostState } from '../messaging/state.ts';
-import { applyPopupView } from './dom.ts';
+import { detectedRows } from './detected.ts';
+import { applyDetectedRows, applyPopupView } from './dom.ts';
 import { popupView } from './render.ts';
 
 async function ask(request: ExtensionRequest): Promise<ExtensionResponse> {
@@ -40,10 +41,48 @@ function setFeedback(message: string): void {
   if (feedback !== null) feedback.textContent = message;
 }
 
+async function refreshDetected(): Promise<void> {
+  const response = await ask({ kind: 'LIST_DETECTED' });
+  if (response.kind === 'DETECTED') {
+    applyDetectedRows(document, detectedRows(response.receipts));
+  }
+}
+
 async function refresh(): Promise<void> {
   setFeedback('');
   applyPopupView(document, popupView({ kind: 'checking' }));
-  applyPopupView(document, popupView(await hostState()));
+  // Both, in parallel: the downloaded-receipt list has its own source and does
+  // not depend on the host state resolving first.
+  await Promise.all([
+    hostState().then((state) => applyPopupView(document, popupView(state))),
+    refreshDetected(),
+  ]);
+}
+
+async function printDetected(downloadId: number): Promise<void> {
+  setFeedback('Impression…');
+  const response = await ask({ kind: 'PRINT_DETECTED', downloadId });
+
+  if (response.kind === 'PRINTED_RECEIPT') {
+    const { ticketNumber, duplicate, warnings } = response.data;
+    setFeedback(
+      duplicate === true
+        ? `Ticket ${ticketNumber} déjà imprimé à l’instant, rien envoyé.`
+        : warnings.length === 0
+          ? `Ticket ${ticketNumber} imprimé.`
+          : `Ticket ${ticketNumber} imprimé, ${warnings.length} anomalie(s) signalée(s).`,
+    );
+  } else {
+    setFeedback(response.kind === 'ERROR' ? response.message : 'Réponse inattendue.');
+  }
+  await refreshDetected();
+}
+
+async function dismissDetected(downloadId: number): Promise<void> {
+  const response = await ask({ kind: 'DISMISS_DETECTED', downloadId });
+  if (response.kind === 'DETECTED') {
+    applyDetectedRows(document, detectedRows(response.receipts));
+  }
 }
 
 async function printTest(): Promise<void> {
@@ -79,5 +118,18 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('settings')?.addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
   });
+
+  // One delegated listener: the rows are rebuilt on every refresh, and inline
+  // handlers are forbidden by the manifest V3 content security policy.
+  document.getElementById('detected-list')?.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLButtonElement)) return;
+    const downloadId = Number(target.dataset['downloadId']);
+    if (!Number.isInteger(downloadId)) return;
+
+    if (target.dataset['action'] === 'print-detected') void printDetected(downloadId);
+    if (target.dataset['action'] === 'dismiss-detected') void dismissDetected(downloadId);
+  });
+
   void refresh();
 });

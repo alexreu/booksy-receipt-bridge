@@ -48,7 +48,35 @@ describe('parseExtensionRequest', () => {
   });
 
   it('lists the intents that change something', () => {
-    expect(WRITING_KINDS).toEqual(['SET_CONFIG', 'PRINT_TEST']);
+    expect(WRITING_KINDS).toEqual([
+      'SET_CONFIG',
+      'PRINT_TEST',
+      'PRINT_DETECTED',
+      'DISMISS_DETECTED',
+    ]);
+  });
+
+  it('accepts the detected-receipt intents with an integer id', () => {
+    expect(parseExtensionRequest({ kind: 'LIST_DETECTED' })).toEqual({ kind: 'LIST_DETECTED' });
+    expect(parseExtensionRequest({ kind: 'PRINT_DETECTED', downloadId: 42 })).toEqual({
+      kind: 'PRINT_DETECTED',
+      downloadId: 42,
+    });
+    expect(parseExtensionRequest({ kind: 'DISMISS_DETECTED', downloadId: 0 })).toEqual({
+      kind: 'DISMISS_DETECTED',
+      downloadId: 0,
+    });
+  });
+
+  it('refuses a caller naming a file instead of a download id', () => {
+    // The worker holds the path it recorded itself; a caller names an id and
+    // nothing else, so nothing in a page can nominate a file to open.
+    expect(parseExtensionRequest({ kind: 'PRINT_DETECTED' })).toBeUndefined();
+    expect(
+      parseExtensionRequest({ kind: 'PRINT_DETECTED', path: '/etc/passwd' }),
+    ).toBeUndefined();
+    expect(parseExtensionRequest({ kind: 'PRINT_DETECTED', downloadId: '42' })).toBeUndefined();
+    expect(parseExtensionRequest({ kind: 'PRINT_DETECTED', downloadId: 1.5 })).toBeUndefined();
   });
 });
 

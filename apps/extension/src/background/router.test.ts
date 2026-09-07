@@ -7,6 +7,7 @@ import {
   type StatusData,
 } from '@brb/shared';
 import { MockNativeHostClient } from '../messaging/mock-client.ts';
+import { STORAGE_KEY, type DetectedReceipt } from '../downloads/store.ts';
 import { handleExtensionMessage, type RouterDeps } from './router.ts';
 
 const EXTENSION_ID = 'ndfcmfgnelpdjgpmaelpdgoccmjcpdjm';
@@ -23,10 +24,24 @@ const STATUS: StatusData = {
   supported: ['PING', 'GET_STATUS'],
 };
 
+/** A stand-in for chrome.storage.session, which tests must not need. */
+function memoryStorage(initial: Record<string, unknown> = {}) {
+  const data = { ...initial };
+  return {
+    get: (key: string) => Promise.resolve(key in data ? { [key]: data[key] } : {}),
+    set: (items: Record<string, unknown>) => {
+      Object.assign(data, items);
+      return Promise.resolve();
+    },
+    snapshot: () => data,
+  };
+}
+
 function deps(overrides: Partial<RouterDeps> = {}): RouterDeps {
   return {
     client: new MockNativeHostClient({ replies: { PING: PING, GET_STATUS: STATUS } }),
     extensionId: EXTENSION_ID,
+    storage: memoryStorage(),
     ...overrides,
   };
 }
@@ -319,5 +334,139 @@ describe('handleExtensionMessage - PRINT_TEST', () => {
       deps({ client }),
     );
     expect(response.kind).toBe('ERROR');
+  });
+});
+
+const DETECTED: DetectedReceipt = {
+  downloadId: 42,
+  path: '/Users/x/Downloads/recu-1167.pdf',
+  ticketNumber: '1167',
+  totalTTC: 300,
+  confidence: 1,
+  warningCount: 0,
+  detectedAt: 1_700,
+  reason: 'booksy',
+};
+
+describe('handleExtensionMessage - detected receipts', () => {
+  const fromPage = { id: EXTENSION_ID, origin: `chrome-extension://${EXTENSION_ID}` };
+
+  it('lists what the worker recorded', async () => {
+    const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
+    const response = await handleExtensionMessage(
+      { kind: 'LIST_DETECTED' },
+      fromPage,
+      deps({ storage }),
+    );
+    expect(response).toEqual({ kind: 'DETECTED', receipts: [DETECTED] });
+  });
+
+  it('prints by download id, using the path the worker itself stored', async () => {
+    // The caller never supplies a path, so nothing in a page can nominate a
+    // file for the host to open.
+    const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
+    const client = new MockNativeHostClient({
+      replies: {
+        PRINT_RECEIPT: { ticketNumber: '1167', confidence: 1, warnings: [], bytesSent: 800 },
+      },
+    });
+
+    const response = await handleExtensionMessage(
+      { kind: 'PRINT_DETECTED', downloadId: 42 },
+      fromPage,
+      deps({ storage, client }),
+    );
+
+    expect(response).toMatchObject({ kind: 'PRINTED_RECEIPT', data: { ticketNumber: '1167' } });
+    expect(client.lastSent).toMatchObject({
+      type: 'PRINT_RECEIPT',
+      payload: {
+        source: { kind: 'path', path: '/Users/x/Downloads/recu-1167.pdf' },
+        trigger: 'user',
+      },
+    });
+  });
+
+  it('marks it printed so the popup stops offering it', async () => {
+    const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
+    const client = new MockNativeHostClient({
+      replies: { PRINT_RECEIPT: { ticketNumber: '1167', confidence: 1, warnings: [] } },
+    });
+    const setBadge = vi.fn();
+
+    await handleExtensionMessage(
+      { kind: 'PRINT_DETECTED', downloadId: 42 },
+      fromPage,
+      deps({ storage, client, setBadge }),
+    );
+
+    const stored = storage.snapshot()[STORAGE_KEY] as DetectedReceipt[];
+    expect(stored[0]?.printedAt).toBeTypeOf('number');
+    expect(setBadge).toHaveBeenCalledWith(0);
+  });
+
+  it('refuses an id it never recorded', async () => {
+    const client = new MockNativeHostClient();
+    const response = await handleExtensionMessage(
+      { kind: 'PRINT_DETECTED', downloadId: 999 },
+      fromPage,
+      deps({ client }),
+    );
+    expect(response).toMatchObject({ kind: 'ERROR' });
+    expect(client.sent).toEqual([]);
+  });
+
+  it('does not mark it printed when the print failed', async () => {
+    const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
+    const client = new MockNativeHostClient({
+      failWith: { code: 'PRINTER_OFFLINE', message: 'imprimante hors ligne' },
+    });
+
+    const response = await handleExtensionMessage(
+      { kind: 'PRINT_DETECTED', downloadId: 42 },
+      fromPage,
+      deps({ storage, client }),
+    );
+    expect(response).toEqual({ kind: 'ERROR', message: 'imprimante hors ligne' });
+    const stored = storage.snapshot()[STORAGE_KEY] as DetectedReceipt[] | undefined;
+    expect(stored?.[0]?.printedAt).toBeUndefined();
+  });
+
+  it('dismisses an entry and updates the badge', async () => {
+    const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
+    const setBadge = vi.fn();
+    const response = await handleExtensionMessage(
+      { kind: 'DISMISS_DETECTED', downloadId: 42 },
+      fromPage,
+      deps({ storage, setBadge }),
+    );
+    expect(response).toEqual({ kind: 'DETECTED', receipts: [] });
+    expect(setBadge).toHaveBeenCalledWith(0);
+  });
+
+  it('refuses printing and dismissing from a content script', async () => {
+    const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
+    const client = new MockNativeHostClient();
+    const fromTab = { id: EXTENSION_ID, origin: 'https://booksy.com' };
+
+    for (const kind of ['PRINT_DETECTED', 'DISMISS_DETECTED'] as const) {
+      const response = await handleExtensionMessage(
+        { kind, downloadId: 42 },
+        fromTab,
+        deps({ storage, client }),
+      );
+      expect(response.kind).toBe('ERROR');
+    }
+    expect(client.sent).toEqual([]);
+  });
+
+  it('lets a content script ask what was detected', async () => {
+    const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
+    const response = await handleExtensionMessage(
+      { kind: 'LIST_DETECTED' },
+      { id: EXTENSION_ID, origin: 'https://booksy.com' },
+      deps({ storage }),
+    );
+    expect(response.kind).toBe('DETECTED');
   });
 });
