@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: lint / typecheck / test (${{ matrix.os }})
+    # Windows is in the matrix from phase 0 on purpose: the native host, its
+    # single-file executable and the installer all target Windows, and Node's
+    # SEA build cannot be signed anywhere else. Having the runner green before
+    # there is anything to sign avoids discovering the toolchain late.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build:extension
+
+      - name: Check the extension bundle carries no remote code
+        shell: bash
+        run: |
+          # Manifest V3 forbids remote script. A build that emitted an absolute
+          # http(s) src would be rejected by the store, silently, much later.
+          if grep -rEl 'src="https?://|from "https?://' apps/extension/dist; then
+            echo "remote code found in the extension bundle" >&2
+            exit 1
+          fi
+
+      - name: Upload the extension bundle
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-unpacked
+          path: apps/extension/dist

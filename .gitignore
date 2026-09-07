@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+
+# Debug output of the PDF inspector and of the ESC/POS emitters.
+# Contains verbatim receipt data -> never committed.
+debug/
+
+# Real Booksy receipts carry customer PII.
+# Only anonymised fixtures may be committed, and they must end in .anon.pdf
+fixtures/booksy/*.pdf
+!fixtures/booksy/*.anon.pdf
+
+# Extension signing key -> never committed (it pins the extension ID)
+*.pem
+apps/extension/key.pem

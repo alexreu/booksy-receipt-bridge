@@ -1,0 +1,105 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildTicketLayout - snapshots > renders the minimal receipt 1`] = `
+"                    X
+------------------------------------------
+               Ticket n° 1
+------------------------------------------
+Prestation
+                                   10,00 €
+------------------------------------------
+TOTAL TTC                          10,00 €
+
+
+"
+`;
+
+exports[`buildTicketLayout - snapshots > renders the nominal receipt 1`] = `
+"                Salon Démo
+           12 rue de Nulle Part
+               75001 Paris
+         SIRET 123 456 789 00012
+            TVA FR12345678901
+                NAF 9602A
+------------------------------------------
+              Ticket n° 996
+             14/03/2026 15:09
+                  Vente
+Client                         Client Démo
+Client n                            C-4211
+------------------------------------------
+Coupe femme
+  1 x 25,00 € TVA 20 %             25,00 €
+Shampooing 250 ml
+  2 x 9,50 € TVA 20 %              19,00 €
+------------------------------------------
+Sous-total                         36,67 €
+TOTAL TTC                          44,00 €
+
+TVA
+  20 % sur 36,67 €                  7,33 €
+
+Carte bancaire                     44,00 €
+------------------------------------------
+Booksy
+Id BK-1234
+NF525 n° 042
+2026-03-14T15:09:01.000Z
+Signature
+MEUCIQDf9k2mQxTn4pLwR7hVb3Yc1sJZaKm5Nn8Ee2
+Rr0Tt6Uu
+
+
+"
+`;
+
+exports[`buildTicketLayout - snapshots > renders the stress receipt 1`] = `
+"     Établissement à la Dénomination
+         Particulièrement Longue
+ 1 avenue des Champs-Élysées, bâtiment C,
+                escalier 4
+               75008 Paris
+                  France
+         SIRET 987 654 321 00099
+            TVA FR98765432109
+                NAF 9602B
+------------------------------------------
+             Ticket n° 1042-A
+             14/03/2026 15:09
+             Vente à emporter
+Client
+      Marie-Ségolène de La Tour-d’Auvergne
+------------------------------------------
+Coloration complète avec balayage, mèches
+et soin réparateur profond
+  1 x 189,90 € TVA 20 %           189,90 €
+Café
+  3 x 2,50 € TVA 10 %               7,50 €
+Sérum 30 ml
+  1 x 45,00 € TVA 20 %             45,00 €
+Remise fidélité
+  TVA 20 %                        -20,00 €
+------------------------------------------
+Sous-total                        202,14 €
+TOTAL TTC                         222,40 €
+
+TVA
+  20 % sur 195,36 €                39,07 €
+  10 % sur 6,82 €                   0,68 €
+  5,50 % sur 0,00 €                 0,00 €
+
+Espèces                           222,40 €
+------------------------------------------
+Booksy Caisse Certifiée
+Id BK-CAISSE-2026-0001-XYZ
+Certification NF525 délivrée par Infocert
+n° 2026/0042/AB
+2026-03-14T15:09:01+01:00
+Signature
+MEUCIQDf9k2mQxTn4pLwR7hVb3Yc1sJZaKm5Nn8Ee2
+Rr0Tt6UuAiEA7Wz1Xx4Yy9Zz0Aa1Bb2Cc3Dd4Ee5Ff
+6Gg7Hh8Ii9Jj
+
+
+"
+`;

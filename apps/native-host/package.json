@@ -1,0 +1,17 @@
+{
+  "name": "@brb/native-host",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "booksy-receipt-bridge": "./src/main.ts"
+  },
+  "dependencies": {
+    "@brb/pdf-inspector": "workspace:*",
+    "@brb/printer": "workspace:*",
+    "@brb/receipt-renderer": "workspace:*",
+    "@brb/shared": "workspace:*",
+    "@brb/ticket-layout": "workspace:*",
+    "zod": "^4.1.13"
+  }
+}

@@ -1,0 +1,377 @@
+# Plan d'implémentation — Booksy Receipt Bridge
+
+**Source** : plan fourni en conversation (68 sections)
+**Cible** : Extension Chromium MV3 + Native Messaging Host Windows → ticket 80 mm sur EPSON TM-T88V
+**Complexité globale** : Large (~55–85 h dev)
+**État repo** : vide, pas de git, macOS (dev) / Windows (cible)
+
+**Décisions actées (2026-09-07)**
+
+1. **ESC/POS en chemin d'impression primaire**, HTML en aperçu seulement. Le driver
+   Windows est écarté.
+2. **Aucune machine Windows ni TM-T88V disponible actuellement.** Tout le code Windows
+   reste derrière `PrinterAdapter` ; vérification hors ligne via `FilePrinterAdapter` +
+   décodeur ESC/POS.
+3. **Premier lot = Phases 0 + 1 + 1.5a** (spike hors ligne). Le 1.5b (matériel réel) est
+   documenté et prêt à lancer, exécuté dès que le Windows + l'imprimante sont là.
+
+---
+
+## 1. Reformulation des exigences
+
+Deux chemins d'entrée, un seul moteur :
+
+```
+A. Bouton injecté dans Booksy  ─┐
+                                ├→ Service Worker ─→ Native Host ─→ TM-T88V
+B. Détection chrome.downloads  ─┘
+```
+
+Le Native Host est la source de vérité : parsing PDF, validation, layout, impression,
+config, logs. L'extension n'est qu'une couche UX. Le host doit fonctionner en CLI sans
+extension (§58).
+
+Invariant fiscal (§31) : **aucun recalcul** de TVA / total / prix / remise. Lecture,
+reformatage, impression. Le parser peut *signaler* une incohérence (warning), jamais la
+corriger.
+
+---
+
+## 2. Trois conflits techniques à trancher avant de coder
+
+### 2.1 AC15 + AC20 + §37 sont mutuellement contradictoires
+
+- **AC14/AC15** : impression sans Ctrl+P, sans fenêtre Windows.
+- **AC20** : le client n'installe pas Node.js.
+- **§37** : « Windows driver, pas ESC/POS dans la première implémentation ».
+- **AC12/AC13** : ticket lisible, rien de coupé.
+
+Or `HTML → moteur de rendu → driver Windows 80 mm` est **exactement le pipeline qui
+échoue aujourd'hui** (le problème 38 % / 100 % du §1). Le driver applique une mise à
+l'échelle qu'on ne contrôle pas de façon fiable, et il faut embarquer un moteur de rendu
+(Chromium headless ou lib PDF) pour produire le document — ce qui alourdit fortement le
+packaging exigé par AC20.
+
+**DÉCISION ACTÉE : ESC/POS en chemin primaire, HTML en aperçu seulement.**
+
+| Critère | ESC/POS raw (spooler RAW) | HTML → PDF → driver |
+|---|---|---|
+| AC13 (rien coupé) | déterministe : 42 colonnes Font A, aucune mise à l'échelle | dépend du driver + du scaling |
+| AC15 (pas de dialogue) | natif (job RAW direct spooler) | nécessite un outil d'impression silencieuse |
+| AC20 (pas de Node) | binaire seul, aucun moteur de rendu | + Chromium headless ou lib PDF embarqué |
+| Testabilité macOS | snapshots de chaînes/octets purs | nécessite un rendu réel |
+| Coupe papier / logo | commandes dédiées (`GS V`) | non |
+
+La TM-T88V **est** une imprimante ESC/POS. Passer par le driver Windows, c'est traduire
+en langage graphique ce que l'imprimante comprend nativement en texte. Et l'aperçu
+HTML reste utile (§18 `showPreview`) — il n'a juste pas à être le format d'impression.
+
+**Conséquence architecture** : introduire une représentation intermédiaire entre
+`Receipt` et la sortie.
+
+```
+Receipt ─→ TicketLayout ─┬→ EscPosEmitter  → octets → spooler RAW → TM-T88V
+        (lignes/colonnes) ├→ HtmlEmitter    → aperçu à l'écran
+                          └→ TextEmitter    → snapshots de tests
+```
+
+`TicketLayout` = liste de lignes typées (`text` / `two-col` / `separator` / `qr` /
+`feed` / `cut`) avec une largeur en caractères configurable. AC13 devient alors un test
+pur : *« aucune ligne ne dépasse N colonnes et tous les champs du Receipt apparaissent
+dans le layout »* — vérifiable sur macOS, sans imprimante.
+
+**Option écartée** : `HTML → msedge --headless --print-to-pdf → impression PDF
+silencieuse`. Ajoutait une dépendance à Edge et un outil d'impression PDF tiers, et
+laissait AC13 à la merci du scaling driver. Le §37 (« pas d'ESC/POS dans la première
+implémentation ») est donc explicitement révisé.
+
+**Conséquence sur les AC** : AC12 et AC13 se testent désormais sur le `TicketLayout`
+(assertions pures), pas sur un rendu papier. AC14 et AC15 restent à valider sur matériel
+réel (Phase 1.5b / Phase 6).
+
+### 2.2 Packaging sans Node.js — et build Windows depuis macOS
+
+AC20 impose un exécutable autonome. Chaîne retenue :
+
+```
+src TS ─→ esbuild (bundle CJS unique) ─→ Node SEA (--experimental-sea-config + postject)
+       ─→ booksy-receipt-bridge.exe
+```
+
+Points durs, à connaître avant de s'engager :
+
+- **SEA exige un point d'entrée CommonJS** (Node 22/24). Source en ESM, bundle de sortie
+  en CJS. `pdfjs-dist` doit être bundlé depuis son build `legacy`, worker désactivé.
+- **Un module natif `.node` ne peut pas être embarqué dans le SEA.** Si on utilise
+  `koffi` pour l'API spooler, le `.node` est livré à côté de l'exe par l'installeur.
+- **La cross-compilation est techniquement possible** depuis macOS (télécharger
+  `node.exe` win-x64, injecter le blob avec `postject`), **mais la signature de code
+  demande Windows + un certificat**. Un exe non signé déclenche SmartScreen chez le
+  client.
+  → **Recommandation** : build en CI sur `windows-latest` dès la Phase 0 (workflow
+  GitHub Actions), même avant d'avoir du code à builder. Corollaire : ce projet a besoin
+  d'un repo git distant tôt.
+
+### 2.3 Ce que le plan ne mentionne pas et qui va mordre
+
+| Sujet | Réalité | Action |
+|---|---|---|
+| **Taille des messages** | Native Messaging plafonne **host → extension à 1 Mo**. Extension → host est large (4 Go). | L'aperçu renvoyé au popup doit être du HTML/texte, jamais un PNG rendu. Vérifier la taille avant d'émettre. |
+| **ID d'extension instable** | En « load unpacked », l'ID change → `allowed_origins` casse à chaque rechargement. | Générer une paire de clés, poser la clé publique base64 dans `manifest.json` → `"key"`. ID déterministe en dev = ID de prod. À faire en **Phase 0**, sinon toute la Phase 5 est un enfer. |
+| **Durée de vie du Service Worker MV3** | Le SW meurt après ~30 s d'inactivité. | Utiliser `sendNativeMessage` (one-shot) partout ; ne pas bâtir d'état en mémoire dans le SW. Toute la config vit côté host (§18). Coût : ~100–300 ms de démarrage de process par message — acceptable. |
+| **Chemin V2 (bouton Booksy)** | Le bouton n'a pas de fichier local : il faut `fetch` le PDF avec les cookies de session, donc des **octets** dans l'extension, pas un chemin. | Deux messages distincts : `PRINT_RECEIPT_FROM_PATH` (chemin, §22) et `PRINT_RECEIPT_FROM_BYTES` (base64). Ne pas prétendre que le chemin local couvre les deux cas. |
+| **Jeu de caractères ESC/POS** | AC exige « caractères français + symbole € ». Le € n'existe pas dans la codepage par défaut de la TM-T88V. | `ESC t 19` (PC858) ou `ESC t 16` (WPC1252) + transcodage explicite. À tester dès le spike. |
+| **PII dans les fixtures** | Les vrais reçus contiennent des noms clients. | `debug/` intégralement gitignoré ; `fixtures/booksy/*.pdf` gitignoré par défaut, seules les versions anonymisées committées. À poser en Phase 0, **avant** le premier PDF réel. |
+| **Duplicata fiscal** | Réimprimer un reçu NF525 dans une autre mise en page produit un second document. | Conserver intégralement la signature/certification d'origine (AC11) et marquer les réimpressions `DUPLICATA`. À valider avec ton comptable — non bloquant pour le code. |
+| **E2E Playwright + Native Messaging** | Impossible de mocker un host natif dans un vrai Chrome. | `NativeHostClient` résolu au runtime ; en build E2E, `MockNativeHostClient` activé via un flag dans `chrome.storage.local`. Prévu dès la Phase 5, pas rajouté après. |
+
+---
+
+## 3. Réordonnancement proposé : un spike d'impression en Phase 1.5
+
+Le plan place l'impression réelle en Phase 6 et l'installeur en Phase 9. **Les priorités
+du §57 restent intactes** — mais l'ordre des priorités n'est pas l'ordre des risques.
+L'exactitude fiscale est la priorité n°1 *et* le risque le plus faible (c'est du parsing
+déterministe, testable). « Imprimer silencieusement sur une TM-T88V depuis un exe non-Node »
+est la priorité n°3 *et* la seule inconnue capable d'invalider l'architecture entière.
+
+→ Insérer un spike juste après la Phase 1. Comme aucune machine Windows n'est disponible
+(décision 2), il se scinde en deux :
+
+**1.5a — hors ligne, sur macOS, maintenant.** Contrairement au spike Windows, ce lot
+n'est *pas* jetable : c'est le socle de `receipt-renderer`.
+
+- `EscPosEmitter` : `TicketLayout` → octets (`ESC @`, `ESC t 19`, `ESC a`, `GS !`, `GS V`).
+- Transcodage PC858 explicite, table de correspondance testée sur `é è à ç ù ° €`.
+- `FilePrinterAdapter` : écrit le flux dans `debug/*.escpos.bin`.
+- **Décodeur ESC/POS** (`escpos-decode`) : rejoue les octets et rend le ticket en texte
+  monospace 42 colonnes + PNG. C'est lui qui remplace l'œil sur le papier.
+- Snapshots : ticket nominal, prestation à nom long, multi-TVA, certification longue.
+
+Ce que 1.5a prouve : la mise en page tient en 42 colonnes, rien n'est tronqué, les
+accents et le € sont encodables. → AC12, AC13.
+
+Ce que 1.5a **ne** prouve **pas** : que le spooler RAW accepte le job sans dialogue ni
+droits admin, que la TM-T88V interprète bien la codepage choisie, que `GS V` coupe.
+→ AC14, AC15 restent ouverts.
+
+**1.5b — sur matériel, différé.** `spikes/escpos-raw/` : script Windows autonome +
+procédure écrite, livrés en 1.5a, exécutés dès que le PC + l'imprimante sont
+disponibles. À vérifier alors : (a) aucun dialogue, (b) 42 colonnes en Font A, (c)
+`ESC t 19` rend correctement `é è à ç €`, (d) `GS V` coupe, (e) accès spooler sans
+droits admin.
+
+**Risque résiduel assumé** : si 1.5b révèle que la codepage ou le spooler RAW ne se
+comportent pas comme prévu, seul l'`EscPosEmitter` est à retoucher — `TicketLayout`,
+parser et protocole ne bougent pas. C'est précisément ce que la couche intermédiaire du
+§2.1 achète.
+
+Ordre final :
+
+| Phase | Contenu | Gate de sortie |
+|---|---|---|
+| 0 | Monorepo, git, CI Windows, clé d'extension, gitignore PII | lint + typecheck + test verts |
+| 1 | PDF Inspector (`pnpm inspect`) | JSON de coordonnées lisible produit |
+| **1.5a** | **ESC/POS emitter + décodeur + FilePrinterAdapter (macOS)** | **snapshots 42 colonnes, € et accents encodés** |
+| 2 | Parser Booksy (`parseBooksyReceipt`) | AC7–AC11 sur PDF réel, snapshots |
+| 3 | `TicketLayout` + emitters HTML / texte, câblage complet | AC12, AC13 en tests purs |
+| 1.5b | Spike matériel : spooler RAW + TM-T88V | AC14, AC15 — dès que le PC est dispo |
+| 4 | Native Host : protocole, Zod, `PING`, `GET_STATUS`, CLI de test | host pilotable sans Chrome |
+| 5 | Extension MV3 : SW, popup, `NativeHostClient` | AC3, AC4 |
+| 6 | `WindowsPrinterAdapter` : `LIST_PRINTERS`, `PRINT_TEST`, `PRINT_RECEIPT` | AC5, AC6, AC14, AC15 |
+| 7 | `chrome.downloads` + déduplication | AC16, AC17 |
+| 8 | `BooksyDomAdapter` + injection bouton | AC18 (fallback intact) |
+| 9 | Installeur Windows (`Setup.exe`) | AC1, AC2, AC20 |
+| 10 | Auto-print sous seuil de confiance | — |
+
+**Dépendance bloquante** : la Phase 2 ne peut pas démarrer sans un vrai PDF Booksy dans
+`fixtures/booksy/`. Les phases 0, 1, 1.5 n'en ont pas besoin.
+
+---
+
+## 4. Structure cible
+
+Conforme au §7, avec les ajouts justifiés ci-dessus (`ticket-layout` extrait du renderer,
+`installer/`, CI) :
+
+```
+booksy-receipt-bridge/
+├── apps/
+│   ├── extension/                 # MV3 : background, popup, options, content, messaging
+│   └── native-host/               # main.ts, messaging/, config/, logging/, cli/
+├── packages/
+│   ├── shared/                    # types Receipt, NativeMessage, schémas Zod, codes d'erreur
+│   ├── pdf-inspector/             # extraction bas niveau pdfjs → PdfTextItem[]
+│   ├── booksy-parser/             # parseBooksyReceipt() + confidence + warnings
+│   ├── ticket-layout/             # Receipt → TicketLayout (largeur configurable)
+│   ├── receipt-renderer/          # emitters : escpos / html / text
+│   └── printer/                   # PrinterAdapter : windows / mock / file
+├── fixtures/
+│   ├── booksy/                    # PDF (gitignore sauf anonymisés)
+│   └── booksy-dom/                # captures HTML anonymisées (§49)
+├── debug/                         # gitignore total
+├── installer/
+├── .github/workflows/             # build Windows + SEA + lint/test
+└── pnpm-workspace.yaml
+```
+
+Choix de build : **Vite nu, sans `@crxjs/vite-plugin`.** Le §6 le donnait comme
+conditionnel (« si cela simplifie réellement »). Pour 4 points d'entrée (SW, popup,
+options, content), un multi-entry Vite + un `manifest.ts` généré suffit, et évite la
+dérive d'un plugin en beta. À reconsidérer si le HMR devient douloureux en Phase 8.
+
+Packages privés consommés en TS source (`"main": "./src/index.ts"`), typecheck global par
+`tsc -b`. Pas d'étape de build inter-packages → pas de problème d'ordre de compilation.
+
+---
+
+## 5. Premier lot à implémenter (Phases 0 + 1 + 1.5a)
+
+Correspond à la « première mission » du §60, plus le socle ESC/POS hors ligne.
+Estimation : ~12–16 h (1.5a est plus large que le spike jetable initialement prévu, mais
+son code est conservé).
+
+### Fichiers créés — Phase 0
+
+| Fichier | Rôle |
+|---|---|
+| `package.json`, `pnpm-workspace.yaml` | workspace, scripts `lint` / `typecheck` / `test` / `inspect` |
+| `tsconfig.base.json` + un `tsconfig.json` par package | strict, `noUncheckedIndexedAccess` |
+| `eslint.config.js` | ESLint 9 flat + typescript-eslint |
+| `vitest.config.ts` | workspace de tests |
+| `.gitignore` | `debug/`, `fixtures/booksy/*.pdf`, `node_modules`, `dist` |
+| `packages/shared/src/receipt.ts` | `Receipt`, `ReceiptItem`, `VatLine` (§30) |
+| `packages/shared/src/native-protocol.ts` | `NativeMessage`, `NativeResponse`, `NativeMessageType`, schémas Zod (§13/14/44) |
+| `packages/shared/src/errors.ts` | les 8 codes d'erreur du §40 |
+| `apps/extension/manifest.json` | MV3 minimal + `"key"` (ID déterministe), permissions du §41 uniquement |
+| `.github/workflows/ci.yml` | lint/typecheck/test + job build Windows |
+| `scripts/gen-extension-key.mjs` | génère la paire de clés, sort la clé publique base64 |
+
+Aucun content script, aucun `chrome.downloads`, aucun Native Messaging fonctionnel,
+aucune impression — conforme au §60.
+
+### Fichiers créés — Phase 1 (PDF Inspector)
+
+| Fichier | Rôle |
+|---|---|
+| `packages/pdf-inspector/src/types.ts` | `PdfTextItem` (§32) |
+| `packages/pdf-inspector/src/extract.ts` | `extractTextItems(buffer): Promise<PdfTextItem[]>` — pdfjs legacy, worker off, `isEvalSupported: false` |
+| `packages/pdf-inspector/src/cli.ts` | `pnpm inspect <pdf>` → `debug/<nom>.json` |
+| `packages/pdf-inspector/src/*.test.ts` | tests sur un PDF synthétique généré au build (pas de fixture PII requise) |
+
+Détail important : les coordonnées pdfjs ont l'origine **en bas à gauche**. Pour un
+parsing « par lignes » (§61) il faut y = haut décroissant. L'extracteur normalise en
+`{ x, yTop, width, height, page }` et le documente — sinon tout le regroupement par
+proximité de la Phase 2 raisonnera à l'envers.
+
+### Fichiers créés — Phase 1.5a (ESC/POS hors ligne)
+
+| Fichier | Rôle |
+|---|---|
+| `packages/ticket-layout/src/types.ts` | `TicketLayout`, `TicketLine` (`text` / `two-col` / `separator` / `feed` / `cut`), largeur en colonnes |
+| `packages/ticket-layout/src/build.ts` | `buildTicketLayout(receipt, opts)` — troncature/wrap contrôlés, jamais de perte silencieuse |
+| `packages/receipt-renderer/src/escpos/commands.ts` | constantes ESC/POS nommées (`ESC @`, `ESC t`, `ESC a`, `GS !`, `GS V`) |
+| `packages/receipt-renderer/src/escpos/codepage.ts` | transcodage PC858, table testée sur `é è à ç ù ° €` |
+| `packages/receipt-renderer/src/escpos/emit.ts` | `emitEscPos(layout): Uint8Array` |
+| `packages/receipt-renderer/src/escpos/decode.ts` | décodeur : octets → texte 42 colonnes + PNG (vérification hors ligne) |
+| `packages/printer/src/adapter.ts` | interface `PrinterAdapter` (§36) |
+| `packages/printer/src/file-adapter.ts` | `FilePrinterAdapter` → `debug/*.escpos.bin` |
+| `packages/printer/src/mock-adapter.ts` | `MockPrinterAdapter` |
+| `spikes/escpos-raw/` | script Windows + `README` de procédure — livré, non exécuté (1.5b) |
+| `packages/receipt-renderer/src/escpos/__snapshots__/` | ticket nominal, nom long, multi-TVA, certification longue |
+
+Note : les fixtures de layout de 1.5a utilisent un `Receipt` **synthétique** écrit à la
+main. Aucune dépendance au PDF réel, donc rien ne bloque. Le `Receipt` synthétique sera
+remplacé par les sorties du parser en Phase 3.
+
+---
+
+## 6. Validation
+
+```bash
+pnpm install
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm inspect ./fixtures/booksy/ticket-996.pdf   # → debug/ticket-996.json
+```
+
+Le gate de sortie est le **code retour** de chacune de ces commandes, pas leur sortie
+texte.
+
+---
+
+## 7. Risques
+
+| Risque | Prob. | Impact | Mitigation |
+|---|---|---|---|
+| Codepage ou spooler RAW se comportent autrement que prévu | Moyenne | `EscPosEmitter` à retoucher | Seul l'emitter est concerné ; layout/parser/protocole intacts (couche §2.1) |
+| AC14 / AC15 non validés avant la Phase 6 | **Certaine** (pas de matériel) | Découverte tardive d'un blocage d'impression | 1.5b prêt à lancer, procédure écrite ; à exécuter dès l'accès au PC — **ne pas laisser glisser jusqu'à la Phase 9** |
+| Exe SEA non signé → SmartScreen bloque le client | Élevée | Installation refusée | Build+signature en CI Windows ; prévoir un certificat |
+| `pdfjs-dist` récalcitrant au bundle SEA | Moyenne | Packaging | Build `legacy`, worker off ; validé en CI dès la Phase 0 |
+| PDF Booksy sans couche texte (image scannée) | Faible | Parser impossible | Vérifié en Phase 1 sur le PDF réel — avant d'écrire le parser |
+| Booksy change son DOM | Élevée à terme | Chemin A cassé | Chemin B (downloads) indépendant, AC18 testé ; fixtures DOM (§49) |
+| Aucune machine Windows de test disponible | **Confirmé** | Bloque 1.5b, 6, 9 | Tout le code Windows derrière `PrinterAdapter` ; `FilePrinterAdapter` + décodeur ESC/POS pour vérifier sur macOS |
+| Format PDF Booksy variable selon établissement/pays | Moyenne | Parser fragile | `confidence` + `warnings` ; refus d'impression sous seuil (§34) |
+
+---
+
+## 8. Acceptation du lot 1 — livré le 2026-09-07
+
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` → exit 0 (135 tests, 8 fichiers)
+- [x] Structure §7 en place, avec les ajouts justifiés
+- [x] ID d'extension déterministe (clé dans le manifest)
+      → `ndfcmfgnelpdjgpmaelpdgoccmjcpdjm`, voir `apps/extension/.extension-id`
+- [x] `debug/` et les PDF non anonymisés gitignorés
+- [ ] **CI Windows verte — workflow écrit, jamais exécuté** : pas de remote git.
+      `.github/workflows/ci.yml` a une matrice ubuntu + windows-latest. Elle ne
+      prouvera rien avant le premier push.
+- [x] `pnpm inspect` produit un JSON de coordonnées exploitable
+- [x] `EscPosEmitter` + décodeur : snapshots verts (nominal, stress, minimal)
+- [x] `é è à ç ù ° €` correctement encodés en PC858 (test dédié par caractère)
+- [x] `spikes/escpos-raw/` + procédure livrés, prêts à exécuter sur Windows
+- [x] Aucun parsing métier Booksy écrit (§60)
+
+### Ce que le lot 1 a fait apparaître
+
+Quatre choses découvertes en implémentant, à retenir pour les phases suivantes :
+
+1. **pdf.js émet des runs de blanc synthétiques** (`text: " "`, `height: 0`) pour
+   représenter l'écart entre deux colonnes d'une même ligne. Pris au pied de la
+   lettre, leur `yTop` se décale d'une hauteur de police et casse le regroupement
+   par ligne. L'extracteur récupère la taille de police depuis la matrice de
+   texte et les marque `isWhitespace`. **Leur `x` et leur `width` mesurent
+   l'écart exactement** — c'est un signal utile pour un parser en colonnes
+   (§61) : `groupIntoLines(items, { includeWhitespace: true })`.
+2. **`isEvalSupported` n'existe plus dans pdfjs-dist 5.x.** L'option a disparu en
+   v5 ; il n'y a plus rien à désactiver.
+3. **La conversion de fuseau est une transformation fiscale.** `new Date()`
+   ré-exprimait un horodatage dans le fuseau de la machine : un reçu émis à 15:09
+   s'imprimait 19:09. `formatDateTime` reformate désormais les composants
+   littéraux, sans arithmétique de fuseau.
+4. **Le contrôle visuel attrape ce que les tests structurels laissent passer.**
+   Le premier `decodeToSvg` produisait un SVG valide, avec le bon texte, qui
+   passait ses tests — et dont la mise en page mentait (remplissage effacé par le
+   viewer, chevauchement en double hauteur). Les snapshots texte sont la
+   vérification qui porte ; le SVG est un confort, à re-regarder à l'œil quand il
+   change.
+
+### Écarts assumés par rapport au plan initial
+
+| Écart | Raison |
+|---|---|
+| Package `ticket-layout` séparé de `receipt-renderer` | rend AC12/AC13 testables en assertions pures |
+| `PrinterAdapter.printRaw(bytes, …)` au lieu de `print(receipt, …)` (§36) | la couche imprimante n'a pas à connaître le modèle fiscal ; la composition se fait au-dessus |
+| Décodeur en SVG, pas en PNG | pas de police bitmap à embarquer, texte sélectionnable, proportions double largeur/hauteur exactes |
+| `PARSE_RECEIPT` prend un `ReceiptSource` discriminé (`path` \| `bytes`) | un seul type de message couvre le chemin téléchargement et le chemin bouton (§2.3) |
+| Pas de `@crxjs/vite-plugin`, pas de React | 4 points d'entrée quasi statiques ; §6 les donnait comme conditionnels |
+| `debug/` porte aussi les sorties ESC/POS (`.bin`, `.txt`, `.svg`) | même règle PII que le JSON de l'inspecteur |
+
+### Prochaine action bloquante
+
+La phase 2 attend **un vrai PDF Booksy** dans `fixtures/booksy/`. Rien d'autre ne
+la débloque. En attendant, `fixtures/booksy/sample-synthetic.anon.pdf` (généré,
+sans données client) permet d'exercer l'inspecteur.
+
+Le spike 1.5b attend **un poste Windows**. Le protocole est dans
+`spikes/escpos-raw/README.md`.
