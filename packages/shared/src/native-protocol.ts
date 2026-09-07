@@ -125,6 +125,15 @@ export interface StatusData {
   printerConfigured: boolean;
   printerFound: boolean;
   configPresent: boolean;
+  /**
+   * Which printer implementation is wired in, e.g. "windows" or "mock".
+   *
+   * Reported so the popup can say plainly that printing is not real yet rather
+   * than showing a green tick because a mock answered.
+   */
+  printerAdapter: string;
+  /** Message types this host actually implements. */
+  supported: NativeMessageType[];
 }
 
 /**

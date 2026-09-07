@@ -7,6 +7,7 @@
     "booksy-receipt-bridge": "./src/main.ts"
   },
   "dependencies": {
+    "@brb/booksy-parser": "workspace:*",
     "@brb/pdf-inspector": "workspace:*",
     "@brb/printer": "workspace:*",
     "@brb/receipt-renderer": "workspace:*",

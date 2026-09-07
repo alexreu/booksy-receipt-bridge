@@ -58,7 +58,7 @@ export function buildTicketLayout(
   separator();
 
   // --- ticket identity ----------------------------------------------------
-  text(`Ticket n${'°'} ${receipt.ticket.number}`, 'center', { bold: true });
+  text(`Ticket n\u00b0 ${receipt.ticket.number}`, 'center', { bold: true });
   if (receipt.ticket.issuedAt !== undefined) {
     text(formatDateTime(receipt.ticket.issuedAt), 'center');
   }
@@ -66,7 +66,7 @@ export function buildTicketLayout(
     text(receipt.ticket.operationType, 'center');
   }
   if (receipt.customer?.name !== undefined) twoCol('Client', receipt.customer.name);
-  if (receipt.customer?.id !== undefined) twoCol('Client n', receipt.customer.id);
+  if (receipt.customer?.id !== undefined) twoCol('Client n\u00b0', receipt.customer.id);
 
   separator();
 

@@ -174,9 +174,9 @@ Ordre final :
 | 1 | PDF Inspector (`pnpm inspect`) | JSON de coordonnées lisible produit |
 | **1.5a** | **ESC/POS emitter + décodeur + FilePrinterAdapter (macOS)** | **snapshots 42 colonnes, € et accents encodés** |
 | 2 | Parser Booksy (`parseBooksyReceipt`) | **fait** — AC7–AC11 sur PDF réel, confidence 1.0 |
-| 3 | `TicketLayout` + emitters HTML / texte, câblage complet | AC12, AC13 en tests purs |
+| 3 | Renderer HTML 80 mm (aperçu) | **fait** — AC12, AC13 en tests purs |
 | 1.5b | Spike matériel : spooler RAW + TM-T88V | AC14, AC15 — dès que le PC est dispo |
-| 4 | Native Host : protocole, Zod, `PING`, `GET_STATUS`, CLI de test | host pilotable sans Chrome |
+| 4 | Native Host : protocole, Zod, `PING`, `GET_STATUS`, CLI | **fait** — host pilotable sans Chrome |
 | 5 | Extension MV3 : SW, popup, `NativeHostClient` | AC3, AC4 |
 | 6 | `WindowsPrinterAdapter` : `LIST_PRINTERS`, `PRINT_TEST`, `PRINT_RECEIPT` | AC5, AC6, AC14, AC15 |
 | 7 | `chrome.downloads` + déduplication | AC16, AC17 |
@@ -371,6 +371,97 @@ Quatre choses découvertes en implémentant, à retenir pour les phases suivante
 
 Le spike 1.5b attend **un poste Windows**. Le protocole est dans
 `spikes/escpos-raw/README.md`. C'est le seul blocage restant côté matériel.
+
+---
+
+## 10. Phases 3 et 4 — livrées le 2026-09-07
+
+288 tests, 19 fichiers. `lint`, `typecheck`, `test`, `build:extension` : exit 0.
+
+### Phase 3 — renderer HTML
+
+`emitHtml(layout, options)` produit l'aperçu écran. **Ce n'est pas le chemin
+d'impression** : il sert le `showPreview` du §18.
+
+L'invariant qui compte : HTML et ESC/POS consomment tous deux
+`renderTicketLines`, et un test compare les lignes émises en HTML à
+`layoutToLines` **caractère par caractère** sur les trois fixtures. Un aperçu qui
+a l'air juste est donc une information sur le papier, pas une seconde hypothèse.
+
+Deux détails de mise en œuvre non évidents :
+
+- `white-space: pre` est indispensable — les lignes sont déjà remplies d'espaces
+  par la couche layout, et sans lui le remplissage s'effondre et les colonnes se
+  décalent.
+- La taille de police est **résolue en TS**, pas en CSS :
+  `printableWidth / columns / 0.6`, où 0,6 est le ratio d'avance des polices
+  monospace courantes. C'est le seul moyen de dire à CSS « 42 caractères, cette
+  largeur ». Une police d'un autre ratio décale légèrement l'aperçu ; elle ne
+  peut pas décaler l'impression, qui est pilotée par les octets.
+- Double taille : `font-size` pour la hauteur, `transform: scaleX(w/h)` pour la
+  largeur. La double hauteur sort donc haute et étroite, comme sur l'imprimante,
+  au lieu de simplement plus grosse.
+
+Le HTML ne charge **rien** depuis le réseau — testé (`https?://`, `<script>`,
+`@import`, `url(`) pour la CSP MV3 et AC19.
+
+### Phase 4 — Native Host
+
+```
+stdin ─→ FrameReader ─→ Zod ─→ dispatch ─→ encodeFrame ─→ stdout
+                                  ↓
+                            config + logs
+```
+
+Implémente **`PING` et `GET_STATUS`**, et refuse tout le reste explicitement.
+
+| Décision | Raison |
+|---|---|
+| `FrameReader` est un accumulateur **pur**, sans I/O | Les cas intéressants sont tous des frontières de chunk : une longueur coupée en deux lectures, plusieurs messages dans une lecture, un corps qui arrive en morceaux. Pénibles à reproduire sur un vrai pipe, triviaux sur une fonction. |
+| Longueur déclarée > 32 Mo → **arrêt** de la lecture | Un writer hostile ne doit pas pouvoir faire allouer sans borne, et une longueur absurde rend la position du flux non fiable : mieux vaut s'arrêter que resynchroniser sur ce qui pourrait être des corps de messages. |
+| Corps JSON invalide → signalé, **lecture poursuivie** | Le cadrage a tenu, seul le contenu était mauvais : la trame suivante reste lisible. |
+| Réponse > 1 Mo → remplacée par une erreur explicite | Chrome jette une réponse trop grosse **sans erreur nulle part** ; l'extension attendrait indéfiniment. |
+| Un type connu mais non implémenté → `NOT_IMPLEMENTED` | Un message de protocole valide qui arrivera en phase 6 ne doit pas être rapporté comme malformé. Code ajouté au §40. |
+| `dispatch` ne lève **jamais** | Un host qui meurt sur un mauvais message est indiscernable d'un host non installé — la panne la moins diagnosticable qui soit. |
+| `StatusData.printerAdapter` | L'adapter est injecté et vaut `mock` jusqu'à la phase 6. Sans ce champ, le popup afficherait une coche verte parce qu'un mock a répondu. |
+| `id` récupéré même d'un message invalide | Sinon l'extension ne peut pas corréler la réponse. À défaut, `'unknown'`. |
+| Config absente → défauts, **sans créer de fichier** | Lire un état ne doit pas écrire un état. |
+| Config corrompue → défauts + erreur remontée | Refuser de démarrer parce qu'un JSON a été tronqué laisserait l'utilisateur sans moyen de le réparer depuis l'UI. |
+| Écriture config en fichier temporaire + `rename` | Un crash ou un disque plein ne peut pas laisser une config à moitié écrite. |
+| Logs : fichier + stderr, **jamais stdout** | `stdout` appartient au protocole. ESLint impose `no-console` sur ce répertoire, et un test vérifie qu'aucun octet ne part sur stdout. |
+| Un dossier de logs non inscriptible n'arrête pas le host | Perdre une ligne de log ne vaut jamais de faire échouer une impression. |
+| `BRB_DATA_DIR` | Les tests ne doivent jamais toucher la vraie config du poste. |
+
+### Le host est autonome (§58)
+
+```bash
+pnpm host ping | status | paths
+pnpm host config [set <clé> <valeur>]
+pnpm host parse|ticket|html|escpos <pdf>
+```
+
+Vérifié sur le vrai reçu : `pnpm host ticket fixtures/booksy/recu-1167.pdf` sort
+le ticket 42 colonnes sans navigateur.
+
+### Tester le host sans Chrome (§63)
+
+```bash
+pnpm host:probe            # PING puis GET_STATUS
+pnpm host:probe --bad      # type inconnu
+pnpm host:probe --batch    # deux trames dans une seule écriture
+```
+
+Le probe **spawn le host et parle le vrai protocole préfixé en longueur**, donc
+il teste ce qui casse réellement en production — le cadrage, et si quelque chose
+a pollué stdout — là où les tests unitaires appellent le dispatcher directement.
+
+### Bug attrapé à l'œil, pas par les tests
+
+L'aperçu HTML du vrai reçu montrait **« Client n »** au lieu de « Client n° » :
+le signe degré manquait dans `buildTicketLayout`, alors que la ligne Ticket
+l'avait. Aucun test structurel ne pouvait le voir. Régression couverte
+désormais — deuxième fois que le contrôle visuel rattrape ce que les assertions
+laissent passer (cf. §8, `decodeToSvg`).
 
 ---
 

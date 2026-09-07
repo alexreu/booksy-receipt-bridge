@@ -1,17 +1,50 @@
 /**
  * Native messaging host entry point.
  *
- * Phase 0 stub. The protocol lands in phase 4; this file exists so the app has a
- * real entry point and so the rule below is recorded before any code can break
- * it:
+ * With no arguments it speaks the Native Messaging protocol on stdin/stdout,
+ * which is how Chrome launches it. With arguments it is a plain CLI - see
+ * cli.ts. That duality is deliberate (plan section 58): the host must be able
+ * to read, render and print a Booksy PDF with no browser involved, because the
+ * extension is only a UX layer over it.
  *
  *   STDOUT BELONGS TO THE PROTOCOL.
  *
- * Chrome reads length-prefixed JSON from this process's stdout. A single stray
- * `console.log` corrupts the frame and the extension sees the host die with no
- * usable error. Diagnostics go to stderr or to a log file. The ESLint config
- * enforces `no-console` for this directory.
+ * In messaging mode nothing may reach stdout but encoded frames. Diagnostics go
+ * to stderr or to the log file; ESLint enforces no-console in this directory.
  */
+import { createHost } from './host.ts';
+import { createLogger } from './logging/logger.ts';
+import { serve } from './messaging/serve.ts';
+import { logDir } from './paths.ts';
 
-process.stderr.write('booksy-receipt-bridge: phase 0 stub, no protocol yet\n');
-process.exit(0);
+async function main(argv: readonly string[]): Promise<number> {
+  if (argv.length > 0) {
+    const { runCli } = await import('./cli.ts');
+    return runCli(argv);
+  }
+
+  const log = createLogger({ dir: logDir() });
+  const host = createHost({ log });
+
+  try {
+    await serve({
+      input: process.stdin,
+      output: process.stdout,
+      log,
+      handle: host.handle,
+    });
+    return 0;
+  } catch (error) {
+    log.error(`Arrêt sur erreur : ${error instanceof Error ? error.stack : String(error)}`);
+    return 1;
+  }
+}
+
+main(process.argv.slice(2))
+  .then((code) => {
+    process.exitCode = code;
+  })
+  .catch((error: unknown) => {
+    process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
+    process.exitCode = 1;
+  });

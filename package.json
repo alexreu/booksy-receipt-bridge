@@ -14,7 +14,9 @@
     "inspect": "tsx packages/pdf-inspector/src/cli.ts",
     "spike:sample": "tsx scripts/make-spike-sample.ts",
     "build:extension": "pnpm --filter @brb/extension build",
-    "gen:extension-key": "node scripts/gen-extension-key.mjs"
+    "gen:extension-key": "node scripts/gen-extension-key.mjs",
+    "host": "tsx apps/native-host/src/main.ts",
+    "host:probe": "tsx scripts/host-probe.ts"
   },
   "devDependencies": {
     "@brb/booksy-parser": "workspace:*",

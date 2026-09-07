@@ -13,9 +13,11 @@ Le plan complet et les décisions d'architecture vivent dans
 | 0 | Monorepo, TypeScript, ESLint, Vitest, CI Windows, clé d'extension | fait |
 | 1 | PDF Inspector (`pnpm inspect`) | fait |
 | 1.5a | Layout ticket, émetteur ESC/POS, décodeur, adaptateurs d'impression | fait |
+| 2 | Parser Booksy | fait |
+| 3 | Renderer HTML 80 mm (aperçu) | fait |
+| 4 | Native Host : protocole, `PING`, `GET_STATUS`, CLI autonome | fait |
 | 1.5b | Spike matériel : spooler RAW + TM-T88V | **en attente d'un poste Windows** |
-| 2 | Parser Booksy | **en attente d'un vrai PDF Booksy** |
-| 3 → 10 | Renderer HTML, Native Host, extension, installeur, auto-print | à venir |
+| 5 → 10 | Extension MV3, imprimante Windows, téléchargements, installeur, auto-print | à venir |
 
 ## Architecture
 
@@ -114,6 +116,26 @@ Produire les fichiers du spike matériel :
 
 ```bash
 pnpm spike:sample
+```
+
+Piloter le host sans navigateur (il est la source de vérité, l'extension n'est
+qu'une couche UX) :
+
+```bash
+pnpm host paths
+pnpm host config set printer.name "EPSON TM-T88V Receipt5"
+pnpm host status
+pnpm host ticket ./fixtures/booksy/ticket-996.pdf
+pnpm host html ./fixtures/booksy/ticket-996.pdf --out debug/apercu.html
+```
+
+Tester le protocole Native Messaging sans Chrome — le probe spawn le host et
+parle le vrai format préfixé en longueur :
+
+```bash
+pnpm host:probe
+pnpm host:probe --bad
+pnpm host:probe --batch
 ```
 
 Construire l'extension :

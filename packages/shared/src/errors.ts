@@ -10,6 +10,7 @@ export const BRIDGE_ERROR_CODES = [
   'PRINT_FAILED',
   'INVALID_MESSAGE',
   'FILE_NOT_ALLOWED',
+  'NOT_IMPLEMENTED',
 ] as const;
 
 export type BridgeErrorCode = (typeof BRIDGE_ERROR_CODES)[number];
@@ -35,4 +36,6 @@ export const BRIDGE_ERROR_MESSAGES: Record<BridgeErrorCode, string> = {
   PRINT_FAILED: 'L’impression a échoué.',
   INVALID_MESSAGE: 'Message interne invalide.',
   FILE_NOT_ALLOWED: 'Ce fichier est hors des dossiers autorisés.',
+  NOT_IMPLEMENTED:
+    'Cette fonction n’est pas encore disponible dans la version installée du service.',
 };

@@ -64,7 +64,9 @@ export function stressReceipt(): Receipt {
         kind: 'service',
       },
       { label: 'Café', quantity: 3, unitPrice: 2.5, total: 7.5, vatRate: 10, kind: 'product' },
-      { label: 'Sérum 30 ml', quantity: 1, unitPrice: 45, total: 45, vatRate: 20, kind: 'product' },
+      // 'ç' is here on purpose: it is a core French letter and every emitter
+      // has to carry it (CP858 0x87, and the HTML preview unescaped).
+      { label: 'Sérum façonnage 30 ml', quantity: 1, unitPrice: 45, total: 45, vatRate: 20, kind: 'product' },
       { label: 'Remise fidélité', total: -20, vatRate: 20 },
     ],
     totals: { subtotal: 202.14, totalTTC: 222.4 },

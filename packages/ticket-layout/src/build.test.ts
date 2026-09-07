@@ -163,3 +163,13 @@ describe('buildTicketLayout - snapshots', () => {
     expect(layoutToLines(buildTicketLayout(make())).join('\n')).toMatchSnapshot();
   });
 });
+
+describe('buildTicketLayout - number signs', () => {
+  it('writes the degree sign on both numbered labels', () => {
+    // Regression: "Client n" shipped without its degree sign while the ticket
+    // line had one, which is visible on the paper.
+    const rows = layoutToLines(buildTicketLayout(nominalReceipt()));
+    expect(rows.some((row) => row.includes('Ticket n° 996'))).toBe(true);
+    expect(rows.some((row) => row.trimStart().startsWith('Client n°'))).toBe(true);
+  });
+});
