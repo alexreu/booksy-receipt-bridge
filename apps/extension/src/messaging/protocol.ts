@@ -17,8 +17,16 @@ import type { HostState } from './state.ts';
  * the single place that decides what reaches the host, and it is a closed set of
  * intents rather than a passthrough for native message types.
  */
+/** What the active tab is showing, when it looks printable. */
+export interface ActiveTabPdf {
+  /** Shown to the user, so they can see which document is meant. */
+  name: string;
+  url: string;
+}
+
 export type ExtensionRequest =
   | { kind: 'GET_HOST_STATE' }
+  | { kind: 'GET_ACTIVE_TAB' }
   | { kind: 'PING_HOST' }
   | { kind: 'LIST_PRINTERS' }
   | { kind: 'GET_CONFIG' }
@@ -26,7 +34,15 @@ export type ExtensionRequest =
   | { kind: 'PRINT_TEST' }
   | { kind: 'LIST_DETECTED' }
   | { kind: 'PRINT_DETECTED'; downloadId: number }
-  | { kind: 'DISMISS_DETECTED'; downloadId: number };
+  | { kind: 'DISMISS_DETECTED'; downloadId: number }
+  /**
+   * Print the PDF the active tab is showing.
+   *
+   * Carries NO url. The worker resolves the active tab itself, so there is no
+   * address from a caller to validate and nothing a page could nominate. The
+   * native host still has to recognise the document as a Booksy receipt.
+   */
+  | { kind: 'PRINT_ACTIVE_TAB' };
 
 export type ExtensionResponse =
   | { kind: 'HOST_STATE'; state: HostState }
@@ -34,6 +50,7 @@ export type ExtensionResponse =
   | { kind: 'CONFIG'; config: BridgeConfig; present: boolean; error?: string }
   | { kind: 'PRINTED'; data: PrintTestData }
   | { kind: 'PRINTED_RECEIPT'; data: PrintReceiptData }
+  | { kind: 'ACTIVE_TAB'; pdf: ActiveTabPdf | null; reason?: string }
   | { kind: 'DETECTED'; receipts: DetectedReceipt[] }
   | { kind: 'ERROR'; message: string };
 
@@ -49,10 +66,12 @@ export const WRITING_KINDS: ExtensionRequest['kind'][] = [
   'PRINT_TEST',
   'PRINT_DETECTED',
   'DISMISS_DETECTED',
+  'PRINT_ACTIVE_TAB',
 ];
 
 const READING_KINDS: ExtensionRequest['kind'][] = [
   'GET_HOST_STATE',
+  'GET_ACTIVE_TAB',
   'PING_HOST',
   'LIST_PRINTERS',
   'GET_CONFIG',
@@ -74,6 +93,7 @@ export function parseExtensionRequest(raw: unknown): ExtensionRequest | undefine
     const patch = parseConfigPatch(record['patch']);
     return patch === undefined ? undefined : { kind, patch };
   }
+  if (kind === 'PRINT_ACTIVE_TAB') return { kind };
   if (kind === 'PRINT_DETECTED' || kind === 'DISMISS_DETECTED') {
     const downloadId = record['downloadId'];
     // An id, not a path: the caller names a receipt the worker already found,

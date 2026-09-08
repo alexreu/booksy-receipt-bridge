@@ -470,3 +470,96 @@ describe('handleExtensionMessage - detected receipts', () => {
     expect(response.kind).toBe('DETECTED');
   });
 });
+
+describe('handleExtensionMessage - the PDF in the active tab', () => {
+  const fromPage = { id: EXTENSION_ID, origin: `chrome-extension://${EXTENSION_ID}` };
+  const PDF = { name: 'recu-1167.pdf', url: 'https://booksy.com/recu/1167.pdf' };
+  const BYTES = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]);
+
+  it('reports what the tab is showing', async () => {
+    const response = await handleExtensionMessage(
+      { kind: 'GET_ACTIVE_TAB' },
+      fromPage,
+      deps({ activeTabPdf: () => Promise.resolve({ pdf: PDF }) }),
+    );
+    expect(response).toEqual({ kind: 'ACTIVE_TAB', pdf: PDF });
+  });
+
+  it('reports nothing when the tab is not a PDF, and says why', async () => {
+    const response = await handleExtensionMessage(
+      { kind: 'GET_ACTIVE_TAB' },
+      fromPage,
+      deps({ activeTabPdf: () => Promise.resolve({ pdf: null, reason: 'not-a-pdf' }) }),
+    );
+    expect(response).toEqual({ kind: 'ACTIVE_TAB', pdf: null, reason: 'not-a-pdf' });
+  });
+
+  it('distinguishes a tab it was never given access to', async () => {
+    // activeTab is granted only when the user invokes the extension, and until
+    // then tabs.query returns a tab with no url. Saying "not a PDF" about a tab
+    // that plainly is one would send the user looking in the wrong place.
+    const response = await handleExtensionMessage(
+      { kind: 'GET_ACTIVE_TAB' },
+      fromPage,
+      deps({ activeTabPdf: () => Promise.resolve({ pdf: null, reason: 'no-permission' }) }),
+    );
+    expect(response).toMatchObject({ pdf: null, reason: 'no-permission' });
+  });
+
+  it('prints the tab as bytes, since it is not a local file', async () => {
+    const client = new MockNativeHostClient({
+      replies: {
+        PRINT_RECEIPT: { ticketNumber: '1167', confidence: 1, warnings: [], bytesSent: 800 },
+      },
+    });
+    const response = await handleExtensionMessage(
+      { kind: 'PRINT_ACTIVE_TAB' },
+      fromPage,
+      deps({ client, fetchActiveTab: () => Promise.resolve(BYTES) }),
+    );
+
+    expect(response).toMatchObject({ kind: 'PRINTED_RECEIPT', data: { ticketNumber: '1167' } });
+    expect(client.lastSent).toMatchObject({
+      type: 'PRINT_RECEIPT',
+      payload: { source: { kind: 'bytes', base64: 'JVBERi0xLjQ=' }, trigger: 'user' },
+    });
+  });
+
+  it('reports a fetch failure without asking the host to print', async () => {
+    const client = new MockNativeHostClient();
+    const response = await handleExtensionMessage(
+      { kind: 'PRINT_ACTIVE_TAB' },
+      fromPage,
+      deps({ client, fetchActiveTab: () => Promise.reject(new Error('403')) }),
+    );
+    expect(response.kind).toBe('ERROR');
+    expect(client.sent).toEqual([]);
+  });
+
+  it('says so plainly when there is no tab to print', async () => {
+    const response = await handleExtensionMessage({ kind: 'PRINT_ACTIVE_TAB' }, fromPage, deps());
+    expect(response).toEqual({ kind: 'ERROR', message: 'Aucun onglet à imprimer.' });
+  });
+
+  it('refuses to print a tab on a page script’s behalf', async () => {
+    // The intent carries no url, so a page cannot nominate a document - but it
+    // must not be able to trigger a print of whatever is on screen either.
+    const client = new MockNativeHostClient();
+    const response = await handleExtensionMessage(
+      { kind: 'PRINT_ACTIVE_TAB' },
+      { id: EXTENSION_ID, origin: 'https://booksy.com' },
+      deps({ client, fetchActiveTab: () => Promise.resolve(BYTES) }),
+    );
+    expect(response.kind).toBe('ERROR');
+    expect(client.sent).toEqual([]);
+  });
+
+  it('lets a page script ask what the tab shows, which reveals nothing new', async () => {
+    const response = await handleExtensionMessage(
+      { kind: 'GET_ACTIVE_TAB' },
+      { id: EXTENSION_ID, origin: 'https://booksy.com' },
+      deps({ activeTabPdf: () => Promise.resolve({ pdf: PDF }) }),
+    );
+    expect(response.kind).toBe('ACTIVE_TAB');
+  });
+});

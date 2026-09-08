@@ -181,7 +181,7 @@ Ordre final :
 | 6a | `LIST_PRINTERS`, `PRINT_TEST`, `PRINT_RECEIPT`, options | **fait** — logiciel |
 | 6b | `WindowsPrinterAdapter` sur matériel | AC5, AC6, AC14, AC15 — bloqué |
 | 7 | `chrome.downloads` + déduplication | **fait** — AC16, AC17 |
-| 8 | `BooksyDomAdapter` + injection bouton | AC18 (fallback intact) |
+| 8 | Impression du PDF de l'onglet actif | **fait** — AC18 (fallback intact) |
 | 9 | Installeur Windows (`Setup.exe`) | AC1, AC2, AC20 |
 | 10 | Auto-print sous seuil de confiance | — |
 
@@ -372,6 +372,79 @@ Quatre choses découvertes en implémentant, à retenir pour les phases suivante
 
 Le spike 1.5b attend **un poste Windows**. Le protocole est dans
 `spikes/escpos-raw/README.md`. C'est le seul blocage restant côté matériel.
+
+---
+
+## 14. Phase 8 — révisée : le PDF de l'onglet actif, livrée le 2026-09-07
+
+594 tests, 38 fichiers, quatre portes à exit 0. Extension : 25,7 kB.
+
+### Le §67 est abandonné, sur décision du 2026-09-07
+
+Le plan prévoyait un `BooksyDomAdapter` injectant un bouton dans la page Booksy.
+**Il n'y aura pas de page Booksy** : le reçu s'ouvre comme un PDF dans un onglet.
+
+J'avais commencé l'adaptateur — stratégies d'ancrage, bouton, `MutationObserver`
+— sur des fixtures DOM **inventées**, faute de capture réelle. Ce travail est
+supprimé, non committé. C'est la bonne issue : il aurait eu exactement la
+faiblesse que le parser aurait eue sans le vrai PDF.
+
+### Ce que la révision achète
+
+| | `BooksyDomAdapter` (abandonné) | PDF de l'onglet actif |
+|---|---|---|
+| Content script | oui | **aucun** |
+| `host_permissions` | domaines Booksy | **aucune** |
+| Connaissance du DOM d'un site | oui, à re-deviner à chaque refonte | **aucune** |
+| Sites couverts | Booksy uniquement | tout onglet affichant un PDF |
+| Vérifiable sans vraie page | non | oui, sauf un maillon |
+
+`activeTab` remplace les permissions d'hôte : elle est accordée **au clic** sur
+l'icône, donc aucun site n'est listé dans le manifest. Le §42 est respecté à son
+niveau le plus strict.
+
+### Le worker résout l'onglet lui-même
+
+`PRINT_ACTIVE_TAB` **ne porte aucune URL**. Le service worker interroge
+`chrome.tabs.query` de son côté, donc il n'y a aucune adresse d'appelant à
+valider et rien qu'une page pourrait désigner. Un test vérifie qu'une URL
+attachée par un appelant est ignorée.
+
+Détection d'un onglet PDF par deux signaux : le chemin se termine en `.pdf`, ou
+le titre de l'onglet le fait — le visualiseur intégré met le nom du fichier en
+titre, et c'est souvent le seul endroit où l'extension apparaît. Les schémas
+`blob:`, `data:`, `file:` et `chrome-extension:` sont refusés : le worker ne peut
+pas les récupérer, ou pas sans des permissions que cette extension ne demande
+délibérément pas.
+
+### Le maillon que je n'ai pas pu vérifier
+
+`activeTab` n'est accordée que lorsque l'utilisateur **invoque** réellement
+l'extension. Mesuré dans le navigateur : sans invocation,
+`chrome.tabs.query({active:true})` renvoie `[{}]` — un onglet sans `url` ni
+`title`. Et `chrome.action.openPopup()` appelé par programme réussit **sans**
+accorder la permission.
+
+Mon harnais CDP ne peut donc pas reproduire un vrai clic sur l'icône. **Reste non
+vérifié** : que le `fetch` du service worker honore le grant `activeTab`. Si ce
+n'était pas le cas, le correctif serait de faire le `fetch` depuis le popup ou
+via `chrome.scripting` — un changement contenu à un fichier.
+
+Ce que cette mesure a produit d'utile : le cas « pas d'accès à l'onglet » est
+maintenant **distingué** de « cet onglet n'est pas un PDF ». Dire « pas un PDF »
+d'un onglet qui en est manifestement un enverrait chercher au mauvais endroit.
+
+Et le message évite de blâmer l'utilisateur : dire « ouvrez le popup depuis
+l'icône » à quelqu'un qui vient de le faire est pire que se taire. Il pointe vers
+le chemin qui, lui, est prouvé : « Téléchargez le reçu : il sera détecté
+automatiquement. »
+
+### AC18 tient toujours
+
+Les deux chemins du §59 restent indépendants. Le chemin B — détection des
+téléchargements — est vérifié de bout en bout et **ne demande aucun accès aux
+onglets**. Si l'onglet actif est illisible, l'extension reste entièrement
+utilisable.
 
 ---
 

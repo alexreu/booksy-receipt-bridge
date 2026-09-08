@@ -8,7 +8,7 @@
 import type { ExtensionRequest, ExtensionResponse } from '../messaging/protocol.ts';
 import type { HostState } from '../messaging/state.ts';
 import { detectedRows } from './detected.ts';
-import { applyDetectedRows, applyPopupView } from './dom.ts';
+import { applyActiveTabPdf, applyDetectedRows, applyPopupView } from './dom.ts';
 import { popupView } from './render.ts';
 
 async function ask(request: ExtensionRequest): Promise<ExtensionResponse> {
@@ -41,6 +41,45 @@ function setFeedback(message: string): void {
   if (feedback !== null) feedback.textContent = message;
 }
 
+/**
+ * Whether printing is possible at all right now.
+ *
+ * Read from the host rather than assumed: offering a button that cannot work is
+ * worse than showing it greyed with the reason.
+ */
+function canPrint(state: HostState): boolean {
+  return state.kind === 'connected' && state.status.printerConfigured;
+}
+
+async function refreshActiveTab(state?: HostState): Promise<void> {
+  const resolved = state ?? (await hostState());
+  const response = await ask({ kind: 'GET_ACTIVE_TAB' });
+  if (response.kind === 'ACTIVE_TAB') {
+    applyActiveTabPdf(document, response.pdf, canPrint(resolved), response.reason);
+  }
+}
+
+async function printActiveTab(): Promise<void> {
+  const button = document.getElementById('print-tab') as HTMLButtonElement | null;
+  if (button !== null) button.disabled = true;
+  setFeedback('Impression…');
+
+  const response = await ask({ kind: 'PRINT_ACTIVE_TAB' });
+  if (response.kind === 'PRINTED_RECEIPT') {
+    const { ticketNumber, duplicate, warnings } = response.data;
+    setFeedback(
+      duplicate === true
+        ? `Ticket ${ticketNumber} déjà imprimé à l’instant, rien envoyé.`
+        : warnings.length === 0
+          ? `Ticket ${ticketNumber} imprimé.`
+          : `Ticket ${ticketNumber} imprimé, ${warnings.length} anomalie(s) signalée(s).`,
+    );
+  } else {
+    setFeedback(response.kind === 'ERROR' ? response.message : 'Réponse inattendue.');
+  }
+  await refreshActiveTab();
+}
+
 async function refreshDetected(): Promise<void> {
   const response = await ask({ kind: 'LIST_DETECTED' });
   if (response.kind === 'DETECTED') {
@@ -54,7 +93,11 @@ async function refresh(): Promise<void> {
   // Both, in parallel: the downloaded-receipt list has its own source and does
   // not depend on the host state resolving first.
   await Promise.all([
-    hostState().then((state) => applyPopupView(document, popupView(state))),
+    // One host round trip feeds both the checklist and the tab section.
+    hostState().then(async (state) => {
+      applyPopupView(document, popupView(state));
+      await refreshActiveTab(state);
+    }),
     refreshDetected(),
   ]);
 }
@@ -114,6 +157,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('print-test')?.addEventListener('click', () => {
     void printTest();
+  });
+  document.getElementById('print-tab')?.addEventListener('click', () => {
+    void printActiveTab();
   });
   document.getElementById('settings')?.addEventListener('click', () => {
     chrome.runtime.openOptionsPage();

@@ -3,13 +3,30 @@ import { WRITING_KINDS, parseConfigPatch, parseExtensionRequest } from './protoc
 
 describe('parseExtensionRequest', () => {
   it('accepts the read-only intents', () => {
-    for (const kind of ['GET_HOST_STATE', 'PING_HOST', 'LIST_PRINTERS', 'GET_CONFIG'] as const) {
+    for (const kind of [
+      'GET_HOST_STATE',
+      'GET_ACTIVE_TAB',
+      'PING_HOST',
+      'LIST_PRINTERS',
+      'GET_CONFIG',
+    ] as const) {
       expect(parseExtensionRequest({ kind })).toEqual({ kind });
     }
   });
 
   it('accepts PRINT_TEST', () => {
     expect(parseExtensionRequest({ kind: 'PRINT_TEST' })).toEqual({ kind: 'PRINT_TEST' });
+  });
+
+  it('accepts PRINT_ACTIVE_TAB and ignores any url a caller attaches', () => {
+    // The intent carries no address on purpose: the worker resolves the active
+    // tab itself, so there is nothing from a caller to validate.
+    expect(parseExtensionRequest({ kind: 'PRINT_ACTIVE_TAB' })).toEqual({
+      kind: 'PRINT_ACTIVE_TAB',
+    });
+    expect(
+      parseExtensionRequest({ kind: 'PRINT_ACTIVE_TAB', url: 'https://evil.example/x.pdf' }),
+    ).toEqual({ kind: 'PRINT_ACTIVE_TAB' });
   });
 
   it('accepts SET_CONFIG with a valid patch', () => {
@@ -53,6 +70,7 @@ describe('parseExtensionRequest', () => {
       'PRINT_TEST',
       'PRINT_DETECTED',
       'DISMISS_DETECTED',
+      'PRINT_ACTIVE_TAB',
     ]);
   });
 

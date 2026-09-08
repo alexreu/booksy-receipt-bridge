@@ -103,6 +103,23 @@ h2 {
   color: var(--muted);
 }
 
+.tab-pdf {
+  margin: 0 0 12px;
+  padding: 9px 10px;
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--border));
+  border-radius: 6px;
+}
+
+.tab-name {
+  margin: 0 0 7px;
+  overflow-wrap: anywhere;
+}
+
+.tab-pdf button {
+  width: 100%;
+}
+
 .detected {
   margin: 0 0 12px;
 }

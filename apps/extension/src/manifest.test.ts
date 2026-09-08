@@ -53,9 +53,16 @@ describe('extension manifest', () => {
   });
 
   it('declares only the permissions the code uses', () => {
-    // Plan section 41. `downloads` is used by the finished-download watcher;
-    // `storage` holds the detected receipts in session storage.
-    expect(manifest.permissions).toEqual(['nativeMessaging', 'storage', 'downloads']);
+    // Plan section 41. `downloads` for the finished-download watcher,
+    // `storage` for the detected receipts, and `activeTab` to read and fetch
+    // the PDF the user is looking at - granted per click, so no site is listed
+    // in host_permissions at all.
+    expect(manifest.permissions).toEqual([
+      'nativeMessaging',
+      'storage',
+      'downloads',
+      'activeTab',
+    ]);
   });
 
   it('requests no host permissions yet, and never a wildcard', () => {
@@ -66,8 +73,16 @@ describe('extension manifest', () => {
     }
   });
 
-  it('declares no content script yet', () => {
+  it('declares no content script at all', () => {
+    // The receipt is a PDF in a tab, reached through activeTab from the popup,
+    // so the extension never runs code in a site's page.
     expect(manifest.content_scripts ?? []).toEqual([]);
+  });
+
+  it('asks for no host permissions', () => {
+    // Plan section 42, at its strictest: activeTab is granted per user click,
+    // which is all this needs.
+    expect(manifest.host_permissions ?? []).toEqual([]);
   });
 
   it('points at files the build actually emits', () => {

@@ -1,3 +1,4 @@
+import type { ActiveTabPdf } from '../messaging/protocol.ts';
 import type { DetectedRow } from './detected.ts';
 import type { PopupView } from './render.ts';
 
@@ -56,7 +57,7 @@ export function applyPopupView(document: Document, view: PopupView): void {
   element('hint').textContent = view.hint ?? '';
   element('footer').textContent = view.footer ?? '';
 
-  // #detected is deliberately NOT written here either: it is driven by session
+  // #tab-pdf and #detected are deliberately NOT written here either: it is driven by session
   // storage rather than by the host state, and re-rendering the host state
   // must not blank the list.
 
@@ -127,4 +128,42 @@ function button(
   element.dataset['action'] = action;
   element.dataset['downloadId'] = String(downloadId);
   return element;
+}
+
+/**
+ * Write the active-tab section.
+ *
+ * Its own applier, for the same reason as the detected list: it comes from the
+ * tab rather than from the host state, and a host refresh must not blank it.
+ */
+export function applyActiveTabPdf(
+  document: Document,
+  pdf: ActiveTabPdf | null,
+  canPrint: boolean,
+  reason?: string,
+): void {
+  const section = document.getElementById('tab-pdf');
+  const name = document.getElementById('tab-pdf-name');
+  const button = document.getElementById('print-tab') as HTMLButtonElement | null;
+  if (section === null || name === null || button === null) return;
+
+  // Shown for a missing grant too, but worded without blaming the user: the
+  // grant may be missing for reasons they cannot act on, and telling someone
+  // who just clicked the icon to click the icon is worse than saying nothing.
+  // It points at the download route instead, which needs no tab access at all.
+  const showPermissionHint = pdf === null && reason === 'no-permission';
+  section.hidden = pdf === null && !showPermissionHint;
+  if (section.hidden) return;
+
+  if (showPermissionHint) {
+    name.textContent =
+      'Onglet illisible. Téléchargez le reçu : il sera détecté automatiquement.';
+    button.disabled = true;
+    button.title = 'Accès à cet onglet non accordé.';
+    return;
+  }
+
+  name.textContent = pdf?.name ?? '—';
+  button.disabled = !canPrint;
+  button.title = canPrint ? '' : 'Configurez une imprimante pour pouvoir imprimer.';
 }

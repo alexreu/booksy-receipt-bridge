@@ -20,7 +20,8 @@ Le plan complet et les décisions d'architecture vivent dans
 | 6a | Impression : `LIST_PRINTERS`, `PRINT_TEST`, `PRINT_RECEIPT`, page Options | fait |
 | 1.5b / 6b | Spike matériel et `WindowsPrinterAdapter` sur imprimante réelle | **en attente d'un poste Windows** |
 | 7 | Détection des téléchargements + liste dans le popup | fait |
-| 8 → 10 | DOM Booksy, installeur, auto-print | à venir |
+| 8 | Impression du PDF affiché dans l'onglet actif | fait |
+| 9 → 10 | Installeur Windows, auto-print | à venir |
 
 ## Architecture
 
@@ -63,6 +64,15 @@ Receipt ─→ TicketLayout ─┬→ EscPosEmitter  → octets → imprimante
 Tous les émetteurs consomment la même géométrie, donc ce qu'un snapshot montre et
 ce que l'imprimante reçoit ne peuvent pas diverger. C'est ce qui rend AC12 et
 AC13 vérifiables sur macOS.
+
+### Aucun content script, aucune permission d'hôte
+
+L'extension ne s'exécute dans la page d'aucun site. Le reçu se présente comme un
+PDF dans un onglet, et le popup propose de l'imprimer via `activeTab` — une
+permission accordée au clic sur l'icône, donc aucun domaine n'est listé dans le
+manifest. Le service worker résout l'onglet actif lui-même : la demande
+d'impression ne transporte aucune URL, donc il n'y a rien qu'une page puisse
+désigner.
 
 ### Deux chemins, dont un déjà en place
 

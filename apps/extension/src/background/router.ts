@@ -20,6 +20,7 @@ import {
   type ExtensionRequest,
   type ExtensionResponse,
 } from '../messaging/protocol.ts';
+import type { ActiveTabPdf } from '../messaging/protocol.ts';
 import { resolveHostState } from '../messaging/state.ts';
 
 export interface RouterSender {
@@ -41,6 +42,14 @@ export interface RouterDeps {
   /** The extension's own id, to reject anything from elsewhere. */
   extensionId: string;
   storage: SessionStorage;
+  /**
+   * What the active tab is showing, and its bytes.
+   *
+   * Resolved by the worker, never supplied by a caller: nothing outside the
+   * worker gets to name the document that will be printed.
+   */
+  activeTabPdf?: () => Promise<{ pdf: ActiveTabPdf | null; reason?: string }>;
+  fetchActiveTab?: () => Promise<Uint8Array>;
   /**
    * Recent downloads, newest first. Given, LIST_DETECTED catches up on any
    * detection lost to the service worker being evicted mid-call.
@@ -187,6 +196,43 @@ async function dispatch(
       return { kind: 'DETECTED', receipts };
     }
 
+    case 'GET_ACTIVE_TAB': {
+      if (deps.activeTabPdf === undefined) return { kind: 'ACTIVE_TAB', pdf: null };
+      const result = await deps.activeTabPdf();
+      return {
+        kind: 'ACTIVE_TAB',
+        pdf: result.pdf,
+        ...(result.reason === undefined ? {} : { reason: result.reason }),
+      };
+    }
+
+    case 'PRINT_ACTIVE_TAB': {
+      if (deps.fetchActiveTab === undefined) {
+        return { kind: 'ERROR', message: 'Aucun onglet à imprimer.' };
+      }
+
+      let bytes: Uint8Array;
+      try {
+        bytes = await deps.fetchActiveTab();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        deps.log?.(`Récupération du PDF échouée : ${message}`);
+        return { kind: 'ERROR', message: 'Le PDF de cet onglet n’a pas pu être lu.' };
+      }
+
+      const response = await deps.client.send<PrintReceiptData>({
+        id: nextMessageId(),
+        type: 'PRINT_RECEIPT',
+        // Bytes rather than a path: a PDF shown in a tab is not a local file
+        // (plan section 2.3).
+        payload: { source: { kind: 'bytes', base64: toBase64(bytes) }, trigger: 'user' },
+      });
+      if (!response.success || response.data === undefined) {
+        return { kind: 'ERROR', message: response.error?.message ?? 'Impression échouée.' };
+      }
+      return { kind: 'PRINTED_RECEIPT', data: response.data };
+    }
+
     case 'PRINT_DETECTED': {
       // The path comes from what the worker itself recorded, never from the
       // caller: a caller names a download id, and nothing else.
@@ -217,4 +263,14 @@ async function dispatch(
 
 function pending(receipts: readonly { printedAt?: number }[]): number {
   return receipts.filter((receipt) => receipt.printedAt === undefined).length;
+}
+
+/** Chunked, because spreading a large array into String.fromCharCode overflows. */
+function toBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunk = 8192;
+  for (let index = 0; index < bytes.length; index += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
+  }
+  return btoa(binary);
 }

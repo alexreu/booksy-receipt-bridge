@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { PROTOCOL_VERSION, type StatusData } from '@brb/shared';
 import type { DetectedReceipt } from '../downloads/store.ts';
 import { detectedRows } from './detected.ts';
-import { applyDetectedRows, applyPopupView } from './dom.ts';
+import { applyActiveTabPdf, applyDetectedRows, applyPopupView } from './dom.ts';
 import { popupView } from './render.ts';
 
 /**
@@ -262,5 +262,56 @@ describe('applyDetectedRows', () => {
     applyPopupView(document, popupView({ kind: 'connected', version: '1.4.0', status: status() }));
     expect(document.querySelectorAll('#detected-list li')).toHaveLength(1);
     expect(document.getElementById('detected')?.hidden).toBe(false);
+  });
+});
+
+describe('applyActiveTabPdf', () => {
+  const PDF = { name: 'recu-1167.pdf', url: 'https://booksy.com/recu/1167.pdf' };
+
+  it('hides the section when the tab is not a PDF', () => {
+    applyActiveTabPdf(document, null, true);
+    expect(document.getElementById('tab-pdf')?.hidden).toBe(true);
+  });
+
+  it('names the document so the user sees which one is meant', () => {
+    applyActiveTabPdf(document, PDF, true);
+    expect(document.getElementById('tab-pdf')?.hidden).toBe(false);
+    expect(document.getElementById('tab-pdf-name')?.textContent).toBe('recu-1167.pdf');
+    expect((document.getElementById('print-tab') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('greys the button with a reason when no printer is set up', () => {
+    applyActiveTabPdf(document, PDF, false);
+    const button = document.getElementById('print-tab') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toContain('imprimante');
+  });
+
+  it('shows the URL nowhere, only the name', () => {
+    applyActiveTabPdf(document, PDF, true);
+    expect(document.getElementById('tab-pdf')?.textContent).not.toContain('https://');
+  });
+
+  it('is not blanked by a host state re-render', () => {
+    applyActiveTabPdf(document, PDF, true);
+    applyPopupView(document, popupView({ kind: 'connected', version: '1.4.0', status: status() }));
+    expect(document.getElementById('tab-pdf')?.hidden).toBe(false);
+  });
+
+  it('points at the download route when the tab cannot be read', () => {
+    // Worded without blaming the user: telling someone who just clicked the
+    // toolbar icon to click the toolbar icon is worse than saying nothing, and
+    // the download route needs no tab access at all.
+    applyActiveTabPdf(document, null, true, 'no-permission');
+    const section = document.getElementById('tab-pdf');
+    expect(section?.hidden).toBe(false);
+    expect(section?.textContent).toContain('Téléchargez le reçu');
+    expect(section?.textContent).not.toContain('icône');
+    expect((document.getElementById('print-tab') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('stays hidden for a tab that simply is not a PDF', () => {
+    applyActiveTabPdf(document, null, true, 'not-a-pdf');
+    expect(document.getElementById('tab-pdf')?.hidden).toBe(true);
   });
 });

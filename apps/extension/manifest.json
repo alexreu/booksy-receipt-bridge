@@ -8,7 +8,8 @@
   "permissions": [
     "nativeMessaging",
     "storage",
-    "downloads"
+    "downloads",
+    "activeTab"
   ],
   "background": {
     "service_worker": "background/index.js",
