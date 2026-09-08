@@ -15,23 +15,31 @@ export interface MockNativeHostClientOptions {
  * made to fake a native host, so the E2E path selects this implementation
  * instead of trying to install one.
  */
-export class MockNativeHostClient implements NativeHostClient {
-  readonly sent: NativeMessage[] = [];
+export interface MockNativeHost extends NativeHostClient {
+  readonly sent: readonly NativeMessage[];
+  readonly lastSent: NativeMessage | undefined;
+}
 
-  constructor(private readonly options: MockNativeHostClientOptions = {}) {}
+/**
+ * In-memory host (plan section 48).
+ *
+ * Used by the unit tests and by the Playwright build: a real Chrome cannot be
+ * made to fake a native host, so the E2E path selects this implementation
+ * instead of trying to install one.
+ */
+export function createMockNativeHostClient(
+  options: MockNativeHostClientOptions = {},
+): MockNativeHost {
+  const sent: NativeMessage[] = [];
 
-  send<T>(message: NativeMessage): Promise<NativeResponse<T>> {
-    this.sent.push(message);
+  const send = <T>(message: NativeMessage): Promise<NativeResponse<T>> => {
+    sent.push(message);
 
-    if (this.options.failWith !== undefined) {
-      return Promise.resolve({
-        id: message.id,
-        success: false,
-        error: this.options.failWith,
-      });
+    if (options.failWith !== undefined) {
+      return Promise.resolve({ id: message.id, success: false, error: options.failWith });
     }
 
-    const reply = this.options.replies?.[message.type];
+    const reply = options.replies?.[message.type];
     if (reply === undefined) {
       return Promise.resolve({
         id: message.id,
@@ -44,9 +52,15 @@ export class MockNativeHostClient implements NativeHostClient {
       });
     }
     return Promise.resolve({ id: message.id, success: true, data: reply as T });
-  }
+  };
 
-  get lastSent(): NativeMessage | undefined {
-    return this.sent[this.sent.length - 1];
-  }
+  return {
+    send,
+    get sent() {
+      return sent;
+    },
+    get lastSent() {
+      return sent[sent.length - 1];
+    },
+  };
 }

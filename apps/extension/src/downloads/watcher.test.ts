@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ParseResult, Receipt } from '@brb/shared';
-import { MockNativeHostClient } from '../messaging/mock-client.ts';
+import { fixedClock, type ParseResult, type Receipt } from '@brb/shared';
+import { createMockNativeHostClient } from '../messaging/mock-client.ts';
 import type { DownloadCandidate } from './filter.ts';
 import { readDetected, type SessionStorage } from './store.ts';
 import {
@@ -44,10 +44,10 @@ let storage: SessionStorage;
 
 function deps(overrides: Partial<WatcherDeps> = {}): WatcherDeps {
   return {
-    client: new MockNativeHostClient({ replies: { PARSE_RECEIPT: PARSED } }),
+    client: createMockNativeHostClient({ replies: { PARSE_RECEIPT: PARSED } }),
     storage,
     lookup: () => Promise.resolve(BOOKSY_DOWNLOAD),
-    now: () => 1_700,
+    now: fixedClock(1_700),
     ...overrides,
   };
 }
@@ -79,14 +79,14 @@ describe('handleFinishedDownload', () => {
   it('only ever asks the host to READ, never to print', async () => {
     // Detection and printing are separate: the user is offered a button, and
     // automatic printing is a later phase behind its own setting.
-    const client = new MockNativeHostClient({ replies: { PARSE_RECEIPT: PARSED } });
+    const client = createMockNativeHostClient({ replies: { PARSE_RECEIPT: PARSED } });
     await handleFinishedDownload(42, deps({ client }));
     expect(client.sent.map((message) => message.type)).toEqual(['PARSE_RECEIPT']);
   });
 
   it('hands the host a path, not the file contents', async () => {
     // Plan section 22: no PDF crosses the messaging channel.
-    const client = new MockNativeHostClient({ replies: { PARSE_RECEIPT: PARSED } });
+    const client = createMockNativeHostClient({ replies: { PARSE_RECEIPT: PARSED } });
     await handleFinishedDownload(42, deps({ client }));
     expect(client.lastSent).toMatchObject({
       type: 'PARSE_RECEIPT',
@@ -95,7 +95,7 @@ describe('handleFinishedDownload', () => {
   });
 
   it('ignores a download the filter does not want', async () => {
-    const client = new MockNativeHostClient({ replies: { PARSE_RECEIPT: PARSED } });
+    const client = createMockNativeHostClient({ replies: { PARSE_RECEIPT: PARSED } });
     const outcome = await handleFinishedDownload(
       42,
       deps({
@@ -124,7 +124,7 @@ describe('handleFinishedDownload', () => {
     // Expected for any PDF that simply is not one - the filename was never
     // proof, which is the whole reason the host is asked.
     const log = vi.fn();
-    const client = new MockNativeHostClient({
+    const client = createMockNativeHostClient({
       failWith: { code: 'NOT_BOOKSY', message: 'Ce PDF n’est pas un reçu Booksy.' },
     });
     const setBadge = vi.fn();
@@ -148,7 +148,7 @@ describe('handleFinishedDownload', () => {
   });
 
   it('carries the parser warnings through as a count', async () => {
-    const client = new MockNativeHostClient({
+    const client = createMockNativeHostClient({
       replies: {
         PARSE_RECEIPT: {
           ...PARSED,
@@ -197,7 +197,7 @@ describe('reconcileDownloads', () => {
 
   it('does not re-ask about a download already recorded', async () => {
     await handleFinishedDownload(42, deps());
-    const client = new MockNativeHostClient({ replies: { PARSE_RECEIPT: PARSED } });
+    const client = createMockNativeHostClient({ replies: { PARSE_RECEIPT: PARSED } });
     await reconcileDownloads(
       deps({ client, recent: () => Promise.resolve([BOOKSY_DOWNLOAD]) }),
     );
@@ -207,12 +207,12 @@ describe('reconcileDownloads', () => {
   it('does not re-parse a PDF the host already rejected', async () => {
     // Otherwise every popup opening would hand the parser the same unrelated
     // documents again.
-    const rejecting = new MockNativeHostClient({
+    const rejecting = createMockNativeHostClient({
       failWith: { code: 'NOT_BOOKSY', message: 'pas un reçu' },
     });
     await handleFinishedDownload(42, deps({ client: rejecting }));
 
-    const second = new MockNativeHostClient({ replies: { PARSE_RECEIPT: PARSED } });
+    const second = createMockNativeHostClient({ replies: { PARSE_RECEIPT: PARSED } });
     await reconcileDownloads(
       deps({ client: second, recent: () => Promise.resolve([BOOKSY_DOWNLOAD]) }),
     );
@@ -220,7 +220,7 @@ describe('reconcileDownloads', () => {
   });
 
   it('ignores recent downloads the filter does not want', async () => {
-    const client = new MockNativeHostClient({ replies: { PARSE_RECEIPT: PARSED } });
+    const client = createMockNativeHostClient({ replies: { PARSE_RECEIPT: PARSED } });
     await reconcileDownloads(
       deps({
         client,
@@ -252,7 +252,7 @@ describe('reconcileDownloads', () => {
 
   it('just reads the list when no download source was given', async () => {
     await handleFinishedDownload(42, deps());
-    const client = new MockNativeHostClient({ replies: { PARSE_RECEIPT: PARSED } });
+    const client = createMockNativeHostClient({ replies: { PARSE_RECEIPT: PARSED } });
     const receipts = await reconcileDownloads(deps({ client }));
     expect(receipts).toHaveLength(1);
     expect(client.sent).toEqual([]);

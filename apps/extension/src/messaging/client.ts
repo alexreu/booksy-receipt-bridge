@@ -5,6 +5,7 @@ import {
   type NativeMessage,
   type NativeResponse,
 } from '@brb/shared';
+import { createIdSource, systemClock, type IdSource } from '@brb/shared';
 import { NATIVE_HOST_NAME } from './host-name.ts';
 
 /**
@@ -25,20 +26,24 @@ export type SendNativeMessage = (
   message: object,
 ) => Promise<unknown>;
 
-export class ChromeNativeHostClient implements NativeHostClient {
-  constructor(
-    private readonly sendNativeMessage: SendNativeMessage,
-    private readonly hostName: string = NATIVE_HOST_NAME,
-  ) {}
-
-  async send<T>(message: NativeMessage): Promise<NativeResponse<T>> {
+/**
+ * The real client.
+ *
+ * A factory over a closure rather than a class: it has no state worth
+ * inheriting and the returned object is exactly the interface.
+ */
+export function createChromeNativeHostClient(
+  sendNativeMessage: SendNativeMessage,
+  hostName: string = NATIVE_HOST_NAME,
+): NativeHostClient {
+  const send = async <T>(message: NativeMessage): Promise<NativeResponse<T>> => {
     let raw: unknown;
     try {
       // One-shot rather than a long-lived port: an MV3 service worker is
       // evicted after about 30 seconds idle, so holding a connection open
       // across user actions is not something the worker can promise. The cost
       // is a process start per message, which is a few hundred milliseconds.
-      raw = await this.sendNativeMessage(this.hostName, message);
+      raw = await sendNativeMessage(hostName, message);
     } catch (error) {
       return { id: message.id, success: false, error: transportError(error) };
     }
@@ -54,7 +59,9 @@ export class ChromeNativeHostClient implements NativeHostClient {
         detail: 'Le service a répondu dans un format inattendu.',
       },
     };
-  }
+  };
+
+  return { send };
 }
 
 /**
@@ -107,7 +114,11 @@ function asResponse<T>(raw: unknown, expectedId: string): NativeResponse<T> | un
   };
 }
 
-/** Ids only need to be unique within a session; they correlate one reply. */
-export function nextMessageId(): string {
-  return `x-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
+/**
+ * Correlation ids for this session.
+ *
+ * Built from an injected clock and a counter instead of `Math.random()`, so a
+ * test can pin the sequence. There is nothing to guess here - the id only has
+ * to distinguish one in-flight reply from another.
+ */
+export const nextMessageId: IdSource = createIdSource(systemClock);

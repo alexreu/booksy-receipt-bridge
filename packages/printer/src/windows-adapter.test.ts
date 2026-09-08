@@ -1,13 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { decodeToText } from '@brb/receipt-renderer';
-import { WindowsPrinterAdapter, parsePrinterList, type RunPowerShell } from './windows-adapter.ts';
-import { DEFAULT_PRINTER_CONFIG, type PrinterConfig } from './types.ts';
+import { createWindowsPrinterAdapter, parsePrinterList, type RunPowerShell } from './windows-adapter.ts';
+import { DEFAULT_PRINTER_CONFIG, type PrinterAdapter, type PrinterConfig } from './types.ts';
 
 const CONFIG: PrinterConfig = { name: 'EPSON TM-T88V Receipt5', ...DEFAULT_PRINTER_CONFIG };
 
-function adapterWith(run: RunPowerShell): WindowsPrinterAdapter {
-  return new WindowsPrinterAdapter({ run });
+function adapterWith(run: RunPowerShell): PrinterAdapter {
+  return createWindowsPrinterAdapter({ run });
 }
 
 describe('parsePrinterList', () => {
@@ -44,7 +44,7 @@ describe('parsePrinterList', () => {
   });
 });
 
-describe('WindowsPrinterAdapter.list', () => {
+describe('createWindowsPrinterAdapter - list', () => {
   it('asks PowerShell for the queues and the default', async () => {
     const run = vi.fn<RunPowerShell>().mockResolvedValue(JSON.stringify({ Name: 'X' }));
     const printers = await adapterWith(run).list();
@@ -57,7 +57,7 @@ describe('WindowsPrinterAdapter.list', () => {
   });
 });
 
-describe('WindowsPrinterAdapter.printRaw', () => {
+describe('createWindowsPrinterAdapter - printRaw', () => {
   it('refuses with no printer name rather than sending to nothing', async () => {
     const run = vi.fn<RunPowerShell>();
     const result = await adapterWith(run).printRaw(new Uint8Array([1]), { ...CONFIG, name: '' });
@@ -110,7 +110,7 @@ describe('WindowsPrinterAdapter.printRaw', () => {
   });
 });
 
-describe('WindowsPrinterAdapter.printTest', () => {
+describe('createWindowsPrinterAdapter - printTest', () => {
   it('sends the diagnostic ticket and reports substituted characters', async () => {
     let sent: Uint8Array | undefined;
     const run = vi.fn<RunPowerShell>().mockImplementation((script) => {

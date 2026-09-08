@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  FrameReader,
+  createFrameReader,
   HEADER_BYTES,
   MAX_INCOMING_BYTES,
   encodeFrame,
@@ -10,7 +10,7 @@ function frameOf(value: unknown): Buffer {
   return encodeFrame(value);
 }
 
-function values(reader: FrameReader, chunk: Buffer): unknown[] {
+function values(reader: ReturnType<typeof createFrameReader>, chunk: Buffer): unknown[] {
   return reader.push(chunk).map((frame) => (frame.ok ? frame.value : { error: frame.reason }));
 }
 
@@ -30,9 +30,9 @@ describe('encodeFrame', () => {
   });
 });
 
-describe('FrameReader', () => {
+describe('createFrameReader', () => {
   it('reads one whole frame', () => {
-    const reader = new FrameReader();
+    const reader = createFrameReader();
     expect(values(reader, frameOf({ id: '1', type: 'PING' }))).toEqual([
       { id: '1', type: 'PING' },
     ]);
@@ -40,13 +40,13 @@ describe('FrameReader', () => {
   });
 
   it('reads several frames delivered in one chunk', () => {
-    const reader = new FrameReader();
+    const reader = createFrameReader();
     const chunk = Buffer.concat([frameOf({ n: 1 }), frameOf({ n: 2 }), frameOf({ n: 3 })]);
     expect(values(reader, chunk)).toEqual([{ n: 1 }, { n: 2 }, { n: 3 }]);
   });
 
   it('waits for a body that arrives in pieces', () => {
-    const reader = new FrameReader();
+    const reader = createFrameReader();
     const frame = frameOf({ id: 'split', type: 'GET_STATUS' });
 
     expect(values(reader, frame.subarray(0, 6))).toEqual([]);
@@ -56,7 +56,7 @@ describe('FrameReader', () => {
   });
 
   it('waits for a length header that arrives in pieces', () => {
-    const reader = new FrameReader();
+    const reader = createFrameReader();
     const frame = frameOf({ id: 'x' });
 
     expect(values(reader, frame.subarray(0, 1))).toEqual([]);
@@ -65,7 +65,7 @@ describe('FrameReader', () => {
   });
 
   it('reads a frame delivered one byte at a time', () => {
-    const reader = new FrameReader();
+    const reader = createFrameReader();
     const frame = frameOf({ id: 'drip', type: 'PING' });
     const seen: unknown[] = [];
     for (const byte of frame) {
@@ -75,7 +75,7 @@ describe('FrameReader', () => {
   });
 
   it('handles a chunk that ends mid-frame after a complete one', () => {
-    const reader = new FrameReader();
+    const reader = createFrameReader();
     const first = frameOf({ n: 1 });
     const second = frameOf({ n: 2 });
 
@@ -84,7 +84,7 @@ describe('FrameReader', () => {
   });
 
   it('reports an invalid body but keeps reading the next frame', () => {
-    const reader = new FrameReader();
+    const reader = createFrameReader();
     const bad = Buffer.alloc(HEADER_BYTES + 5);
     bad.writeUInt32LE(5, 0);
     bad.write('not{}', HEADER_BYTES, 'utf8');
@@ -97,7 +97,7 @@ describe('FrameReader', () => {
   it('refuses a declared length beyond the cap and stops reading', () => {
     // Without this a hostile writer could make the host allocate without bound;
     // and once a length is nonsense the stream position cannot be trusted.
-    const reader = new FrameReader();
+    const reader = createFrameReader();
     const header = Buffer.alloc(HEADER_BYTES);
     header.writeUInt32LE(MAX_INCOMING_BYTES + 1, 0);
 
@@ -110,7 +110,7 @@ describe('FrameReader', () => {
   });
 
   it('accepts a zero-length frame without hanging', () => {
-    const reader = new FrameReader();
+    const reader = createFrameReader();
     const header = Buffer.alloc(HEADER_BYTES);
     header.writeUInt32LE(0, 0);
     const frames = reader.push(Buffer.concat([header, frameOf({ n: 1 })]));
@@ -119,11 +119,11 @@ describe('FrameReader', () => {
   });
 
   it('returns nothing for an empty chunk', () => {
-    expect(new FrameReader().push(Buffer.alloc(0))).toEqual([]);
+    expect(createFrameReader().push(Buffer.alloc(0))).toEqual([]);
   });
 
   it('round-trips a payload at the cap boundary', () => {
-    const reader = new FrameReader();
+    const reader = createFrameReader();
     const value = { pad: 'x'.repeat(1000) };
     expect(values(reader, frameOf(value))).toEqual([value]);
   });

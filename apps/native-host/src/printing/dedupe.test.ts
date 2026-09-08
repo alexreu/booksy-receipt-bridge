@@ -2,6 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { fixedClock } from '@brb/shared';
 import {
   AUTO_WINDOW_MS,
   USER_WINDOW_MS,
@@ -18,21 +19,21 @@ beforeEach(() => {
 
 describe('checkAndRecord', () => {
   it('lets the first print through', () => {
-    expect(checkAndRecord('k', { path, windowMs: USER_WINDOW_MS })).toEqual({ duplicate: false });
+    expect(checkAndRecord('k', { path, windowMs: USER_WINDOW_MS, now: fixedClock(1_000) })).toEqual({ duplicate: false });
   });
 
   it('catches a second print of the same receipt', () => {
     // The point of the whole module: the second click of a double-click.
-    checkAndRecord('k', { path, windowMs: USER_WINDOW_MS });
-    expect(checkAndRecord('k', { path, windowMs: USER_WINDOW_MS })).toEqual({ duplicate: true });
+    checkAndRecord('k', { path, windowMs: USER_WINDOW_MS, now: fixedClock(1_000) });
+    expect(checkAndRecord('k', { path, windowMs: USER_WINDOW_MS, now: fixedClock(1_000) })).toEqual({ duplicate: true });
   });
 
   it('survives the host process restarting between the two', () => {
     // sendNativeMessage starts a fresh process per message, so the history has
     // to be on disk - an in-memory guard would never see the second click.
-    checkAndRecord('k', { path, windowMs: USER_WINDOW_MS });
+    checkAndRecord('k', { path, windowMs: USER_WINDOW_MS, now: fixedClock(1_000) });
     // Nothing is carried over in this test but the file itself.
-    expect(checkAndRecord('k', { path, windowMs: USER_WINDOW_MS }).duplicate).toBe(true);
+    expect(checkAndRecord('k', { path, windowMs: USER_WINDOW_MS, now: fixedClock(1_000) }).duplicate).toBe(true);
   });
 
   it('lets the same receipt through once the window has passed', () => {
@@ -56,24 +57,24 @@ describe('checkAndRecord', () => {
   });
 
   it('keeps different receipts independent', () => {
-    checkAndRecord('a', { path, windowMs: USER_WINDOW_MS });
-    expect(checkAndRecord('b', { path, windowMs: USER_WINDOW_MS }).duplicate).toBe(false);
+    checkAndRecord('a', { path, windowMs: USER_WINDOW_MS, now: fixedClock(1_000) });
+    expect(checkAndRecord('b', { path, windowMs: USER_WINDOW_MS, now: fixedClock(1_000) }).duplicate).toBe(false);
   });
 
   it('treats a corrupt history as empty rather than refusing to print', () => {
     // At worst a duplicate slips through; refusing to print would be worse.
     writeFileSync(path, '{ not json');
-    expect(checkAndRecord('k', { path, windowMs: USER_WINDOW_MS }).duplicate).toBe(false);
+    expect(checkAndRecord('k', { path, windowMs: USER_WINDOW_MS, now: fixedClock(1_000) }).duplicate).toBe(false);
   });
 
   it('ignores malformed entries in an otherwise valid history', () => {
     writeFileSync(path, JSON.stringify([{ key: 'k' }, 'nope', { at: 1 }, null]));
-    expect(checkAndRecord('k', { path, windowMs: USER_WINDOW_MS }).duplicate).toBe(false);
+    expect(checkAndRecord('k', { path, windowMs: USER_WINDOW_MS, now: fixedClock(1_000) }).duplicate).toBe(false);
   });
 
   it('does not fail when the history cannot be written', () => {
     const unwritable = '/proc/definitely-not-writable/history.json';
-    expect(() => checkAndRecord('k', { path: unwritable, windowMs: 1000 })).not.toThrow();
+    expect(() => checkAndRecord('k', { path: unwritable, windowMs: 1000, now: fixedClock(1_000) })).not.toThrow();
   });
 });
 

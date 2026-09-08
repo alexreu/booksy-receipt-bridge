@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { decodeEscPos, decodeToText } from '@brb/receipt-renderer';
 import { layoutToLines } from '@brb/ticket-layout';
-import { FilePrinterAdapter } from './file-adapter.ts';
-import { MockPrinterAdapter } from './mock-adapter.ts';
+import { createFilePrinterAdapter } from './file-adapter.ts';
+import { createMockPrinterAdapter } from './mock-adapter.ts';
 import { buildTestTicketLayout } from './test-ticket.ts';
 import { DEFAULT_PRINTER_CONFIG, type PrinterConfig } from './types.ts';
 
@@ -63,19 +63,19 @@ describe('buildTestTicketLayout', () => {
   });
 });
 
-describe('MockPrinterAdapter', () => {
+describe('createMockPrinterAdapter', () => {
   it('lists a default printer', async () => {
-    const printers = await new MockPrinterAdapter().list();
+    const printers = await createMockPrinterAdapter().list();
     expect(printers[0]?.isDefault).toBe(true);
   });
 
   it('lists the printers it was given', async () => {
-    const adapter = new MockPrinterAdapter({ printers: [{ name: 'A' }, { name: 'B' }] });
+    const adapter = createMockPrinterAdapter({ printers: [{ name: 'A' }, { name: 'B' }] });
     expect((await adapter.list()).map((printer) => printer.name)).toEqual(['A', 'B']);
   });
 
   it('records what it was asked to print', async () => {
-    const adapter = new MockPrinterAdapter();
+    const adapter = createMockPrinterAdapter();
     const result = await adapter.printRaw(new Uint8Array([1, 2, 3]), CONFIG);
     expect(result).toMatchObject({ ok: true, bytesSent: 3 });
     expect(adapter.calls).toHaveLength(1);
@@ -83,7 +83,7 @@ describe('MockPrinterAdapter', () => {
   });
 
   it('prints a valid test ticket', async () => {
-    const adapter = new MockPrinterAdapter();
+    const adapter = createMockPrinterAdapter();
     const result = await adapter.printTest(CONFIG);
     expect(result.ok).toBe(true);
     const decoded = decodeEscPos(adapter.calls[0]?.bytes ?? new Uint8Array());
@@ -96,29 +96,29 @@ describe('MockPrinterAdapter', () => {
     // The test ticket deliberately carries characters CP858 lacks - a
     // typographic apostrophe and an oe ligature - so that printing it tells you
     // which glyphs get substituted on this printer before a real receipt does.
-    const result = await new MockPrinterAdapter().printTest(CONFIG);
+    const result = await createMockPrinterAdapter().printTest(CONFIG);
     expect(result.unmapped).toEqual(['’', 'œ']);
   });
 
   it('fails when told to, without recording the call', async () => {
-    const adapter = new MockPrinterAdapter({ failWith: 'PRINTER_OFFLINE' });
+    const adapter = createMockPrinterAdapter({ failWith: 'PRINTER_OFFLINE' });
     const result = await adapter.printRaw(new Uint8Array([1]), CONFIG);
     expect(result).toEqual({ ok: false, error: 'PRINTER_OFFLINE' });
     expect(adapter.calls).toEqual([]);
   });
 
   it('honours the cut feed from the config', async () => {
-    const adapter = new MockPrinterAdapter();
+    const adapter = createMockPrinterAdapter();
     await adapter.printTest({ ...CONFIG, cutFeedDots: 30 });
     const bytes = adapter.calls[0]?.bytes ?? new Uint8Array();
     expect([...bytes.slice(-4)]).toEqual([0x1d, 0x56, 66, 30]);
   });
 });
 
-describe('FilePrinterAdapter', () => {
+describe('createFilePrinterAdapter', () => {
   it('writes the bytes, the text replay and the picture', async () => {
     const outDir = await mkdtemp(join(tmpdir(), 'brb-print-'));
-    const adapter = new FilePrinterAdapter({ outDir, name: 'ticket' });
+    const adapter = createFilePrinterAdapter({ outDir, name: 'ticket' });
 
     const result = await adapter.printTest(CONFIG);
     expect(result.ok).toBe(true);
@@ -141,13 +141,13 @@ describe('FilePrinterAdapter', () => {
   it('creates the output directory if it does not exist', async () => {
     const root = await mkdtemp(join(tmpdir(), 'brb-print-'));
     const outDir = join(root, 'nested', 'deeper');
-    const adapter = new FilePrinterAdapter({ outDir, name: 't' });
+    const adapter = createFilePrinterAdapter({ outDir, name: 't' });
     await adapter.printRaw(new Uint8Array([0x41, 0x0a]), CONFIG);
     expect(await readdir(outDir)).toContain('t.escpos.bin');
   });
 
   it('describes itself as a file sink rather than pretending to be a printer', async () => {
-    const printers = await new FilePrinterAdapter({ outDir: '/tmp' }).list();
+    const printers = await createFilePrinterAdapter({ outDir: '/tmp', name: 'x' }).list();
     expect(printers[0]?.name).toContain('file:');
   });
 });

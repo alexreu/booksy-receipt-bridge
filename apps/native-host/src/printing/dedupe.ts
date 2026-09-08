@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import type { Clock } from '@brb/shared';
 
 /**
  * Stop the same receipt printing twice (plan section 54).
@@ -30,7 +31,8 @@ interface HistoryEntry {
 export interface DedupeOptions {
   path: string;
   windowMs: number;
-  now?: () => number;
+  /** Required, not defaulted: a hidden clock is a hidden way to be wrong. */
+  now: Clock;
 }
 
 /**
@@ -40,7 +42,7 @@ export interface DedupeOptions {
  * should keep pushing the window out, not let the third click through.
  */
 export function checkAndRecord(key: string, options: DedupeOptions): { duplicate: boolean } {
-  const now = options.now?.() ?? Date.now();
+  const now = options.now();
   const entries = read(options.path).filter((entry) => now - entry.at < options.windowMs);
   const duplicate = entries.some((entry) => entry.key === key);
 

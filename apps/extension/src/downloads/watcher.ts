@@ -1,4 +1,4 @@
-import type { ParseResult } from '@brb/shared';
+import type { Clock, ParseResult } from '@brb/shared';
 import { nextMessageId, type NativeHostClient } from '../messaging/client.ts';
 import {
   candidateReason,
@@ -25,7 +25,8 @@ export interface WatcherDeps {
   /** Show how many receipts await a decision. */
   setBadge?: (count: number) => void;
   log?: (message: string) => void;
-  now?: () => number;
+  /** Required, not defaulted: `detectedAt` is data the popup shows. */
+  now: Clock;
 }
 
 export type WatchOutcome =
@@ -86,7 +87,7 @@ export async function handleFinishedDownload(
     ...(receipt.ticket.issuedAt === undefined ? {} : { issuedAt: receipt.ticket.issuedAt }),
     confidence,
     warningCount: warnings.length,
-    detectedAt: deps.now?.() ?? Date.now(),
+    detectedAt: deps.now(),
     reason: candidateReason(candidate),
   };
 

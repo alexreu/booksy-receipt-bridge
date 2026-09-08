@@ -2,7 +2,7 @@ import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import type { NativeResponse } from '@brb/shared';
 import { silentLogger } from '../logging/logger.ts';
-import { FrameReader, HEADER_BYTES, MAX_INCOMING_BYTES, encodeFrame } from './framing.ts';
+import { createFrameReader, HEADER_BYTES, MAX_INCOMING_BYTES, encodeFrame } from './framing.ts';
 import { serve } from './serve.ts';
 
 interface Run {
@@ -40,7 +40,7 @@ async function run(
   await finished;
 
   const stdout = Buffer.concat(chunks);
-  const reader = new FrameReader();
+  const reader = createFrameReader();
   const responses = reader.push(stdout).map((frame) => (frame.ok ? frame.value : frame));
   return { responses, received, stdout };
 }
@@ -95,7 +95,7 @@ describe('serve', () => {
       input.write(encodeFrame({ id: 'a', type: 'PING' }));
     });
     // The whole stream must decode with no leftover bytes.
-    const reader = new FrameReader();
+    const reader = createFrameReader();
     expect(reader.push(stdout)).toHaveLength(1);
     expect(reader.pending).toBe(0);
   });

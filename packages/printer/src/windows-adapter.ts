@@ -99,28 +99,25 @@ export interface WindowsPrinterAdapterOptions {
   documentName?: string;
 }
 
-export class WindowsPrinterAdapter implements PrinterAdapter {
-  private readonly run: RunPowerShell;
-  private readonly documentName: string;
+export function createWindowsPrinterAdapter(
+  options: WindowsPrinterAdapterOptions = {},
+): PrinterAdapter {
+  const run = options.run ?? runPowerShell;
+  const documentName = options.documentName ?? 'Booksy Receipt Bridge';
 
-  constructor(options: WindowsPrinterAdapterOptions = {}) {
-    this.run = options.run ?? runPowerShell;
-    this.documentName = options.documentName ?? 'Booksy Receipt Bridge';
-  }
-
-  async list(): Promise<Printer[]> {
+  const list = async (): Promise<Printer[]> => {
     // ConvertTo-Json collapses a single result to an object rather than an
     // array, so the depth and the array wrapper are both deliberate.
-    const output = await this.run(
+    const output = await run(
       '$ErrorActionPreference = "Stop"; ' +
         '$d = (Get-CimInstance -ClassName Win32_Printer -Filter "Default = TRUE").Name; ' +
         '@(Get-Printer | Select-Object Name, PrinterStatus, @{n="IsDefault";e={$_.Name -eq $d}}) ' +
         '| ConvertTo-Json -Depth 3 -Compress',
     );
     return parsePrinterList(output);
-  }
+  };
 
-  async printRaw(bytes: Uint8Array, config: PrinterConfig): Promise<PrintResult> {
+  const printRaw = async (bytes: Uint8Array, config: PrinterConfig): Promise<PrintResult> => {
     if (config.name === '') {
       return { ok: false, error: 'Aucune imprimante configurée.' };
     }
@@ -138,16 +135,13 @@ export class WindowsPrinterAdapter implements PrinterAdapter {
         '$ErrorActionPreference = "Stop"',
         `Add-Type -TypeDefinition @'\n${RAW_PRINT_SOURCE}\n'@ -Language CSharp`,
         `$bytes = [System.IO.File]::ReadAllBytes(${quote(payload)})`,
-        `$written = [RawPrinter]::SendBytes(${quote(config.name)}, ${quote(this.documentName)}, $bytes)`,
+        `$written = [RawPrinter]::SendBytes(${quote(config.name)}, ${quote(documentName)}, $bytes)`,
         'Write-Output "written=$written"',
       ].join('\n');
 
-      const output = await this.run(script);
+      const output = await run(script);
       const written = /written=(\d+)/.exec(output)?.[1];
-      return {
-        ok: true,
-        bytesSent: written === undefined ? bytes.length : Number(written),
-      };
+      return { ok: true, bytesSent: written === undefined ? bytes.length : Number(written) };
     } catch (error) {
       return { ok: false, error: describe(error) };
     } finally {
@@ -155,15 +149,17 @@ export class WindowsPrinterAdapter implements PrinterAdapter {
         await rm(directory, { recursive: true, force: true }).catch(() => undefined);
       }
     }
-  }
+  };
 
-  async printTest(config: PrinterConfig): Promise<PrintResult> {
+  const printTest = async (config: PrinterConfig): Promise<PrintResult> => {
     const { bytes, unmapped } = emitEscPos(buildTestTicketLayout(config), {
       ...(config.cutFeedDots === undefined ? {} : { cutFeedDots: config.cutFeedDots }),
     });
-    const result = await this.printRaw(bytes, config);
+    const result = await printRaw(bytes, config);
     return { ...result, unmapped };
-  }
+  };
+
+  return { list, printRaw, printTest };
 }
 
 /**

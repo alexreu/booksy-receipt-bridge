@@ -31,24 +31,40 @@ export function encodeFrame(value: unknown): Buffer {
   return Buffer.concat([header, body]);
 }
 
-export class FrameReader {
-  #buffer: Buffer = Buffer.alloc(0);
-  #stopped = false;
-
+export interface FrameReader {
   /** Feed bytes; get back every complete frame they completed. */
-  push(chunk: Buffer): Frame[] {
-    if (this.#stopped) return [];
-    this.#buffer = this.#buffer.length === 0 ? chunk : Buffer.concat([this.#buffer, chunk]);
+  push(chunk: Buffer): Frame[];
+  /** Bytes held back waiting for the rest of a frame. */
+  readonly pending: number;
+}
+
+/**
+ * A closure over the partial buffer.
+ *
+ * Stateful by nature - it exists to remember the bytes that did not yet make a
+ * whole frame - but referentially transparent in the sense that matters: the
+ * same sequence of pushes always yields the same sequence of frames, and
+ * nothing outside it is observed or touched. The local mutation is a bounded
+ * accumulator on the read path, and removing it would mean copying the buffer
+ * on every chunk for no gain.
+ */
+export function createFrameReader(): FrameReader {
+  let buffer: Buffer = Buffer.alloc(0);
+  let stopped = false;
+
+  const push = (chunk: Buffer): Frame[] => {
+    if (stopped) return [];
+    buffer = buffer.length === 0 ? chunk : Buffer.concat([buffer, chunk]);
 
     const frames: Frame[] = [];
     for (;;) {
-      if (this.#buffer.length < HEADER_BYTES) break;
+      if (buffer.length < HEADER_BYTES) break;
 
-      const length = this.#buffer.readUInt32LE(0);
+      const length = buffer.readUInt32LE(0);
       if (length > MAX_INCOMING_BYTES) {
         // Unrecoverable: the stream position is no longer trustworthy, so stop
         // rather than resynchronise on what might be message bodies.
-        this.#stopped = true;
+        stopped = true;
         frames.push({
           ok: false,
           reason: `Message de ${length} octets, au-delà de la limite de ${MAX_INCOMING_BYTES}.`,
@@ -56,10 +72,10 @@ export class FrameReader {
         });
         break;
       }
-      if (this.#buffer.length < HEADER_BYTES + length) break;
+      if (buffer.length < HEADER_BYTES + length) break;
 
-      const body = this.#buffer.subarray(HEADER_BYTES, HEADER_BYTES + length);
-      this.#buffer = this.#buffer.subarray(HEADER_BYTES + length);
+      const body = buffer.subarray(HEADER_BYTES, HEADER_BYTES + length);
+      buffer = buffer.subarray(HEADER_BYTES + length);
 
       try {
         frames.push({ ok: true, value: JSON.parse(body.toString('utf8')) });
@@ -70,10 +86,12 @@ export class FrameReader {
       }
     }
     return frames;
-  }
+  };
 
-  /** Bytes held back waiting for the rest of a frame. */
-  get pending(): number {
-    return this.#buffer.length;
-  }
+  return {
+    push,
+    get pending() {
+      return buffer.length;
+    },
+  };
 }

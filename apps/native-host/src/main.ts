@@ -12,6 +12,7 @@
  * In messaging mode nothing may reach stdout but encoded frames. Diagnostics go
  * to stderr or to the log file; ESLint enforces no-console in this directory.
  */
+import { systemClock } from '@brb/shared';
 import { createHost } from './host.ts';
 import { createLogger } from './logging/logger.ts';
 import { serve } from './messaging/serve.ts';
@@ -26,7 +27,7 @@ async function main(argv: readonly string[]): Promise<number> {
     return runCli(mode === 'usage' ? ['--unknown', ...argv] : argv);
   }
 
-  const log = createLogger({ dir: logDir() });
+  const log = createLogger({ dir: logDir(), now: systemClock });
   // Recorded because the launch arguments are the only clue to how the browser
   // started the host, and stdout cannot be used to ask.
   log.debug(`Lancement en mode messaging, argv: ${argv.join(' ') || '(aucun)'}`);

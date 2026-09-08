@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PROTOCOL_VERSION, type PingData, type StatusData } from '@brb/shared';
-import { MockNativeHostClient } from './mock-client.ts';
+import { createMockNativeHostClient } from './mock-client.ts';
 import { describeHostState, hostChecklist, resolveHostState, type HostState } from './state.ts';
 
 const PING: PingData = { status: 'ready', version: '1.2.3', protocolVersion: PROTOCOL_VERSION };
@@ -22,7 +22,7 @@ function statusData(overrides: Partial<StatusData> = {}): StatusData {
 
 describe('resolveHostState', () => {
   it('reports connected when the host answers both calls', async () => {
-    const client = new MockNativeHostClient({
+    const client = createMockNativeHostClient({
       replies: { PING: PING, GET_STATUS: statusData() },
     });
     const state = await resolveHostState(client);
@@ -31,7 +31,7 @@ describe('resolveHostState', () => {
 
   it('pings before asking for status', async () => {
     // PING is the cheapest possible answer to "is anything there at all".
-    const client = new MockNativeHostClient({
+    const client = createMockNativeHostClient({
       replies: { PING: PING, GET_STATUS: statusData() },
     });
     await resolveHostState(client);
@@ -39,7 +39,7 @@ describe('resolveHostState', () => {
   });
 
   it('reports unavailable when the host is not installed', async () => {
-    const client = new MockNativeHostClient({
+    const client = createMockNativeHostClient({
       failWith: { code: 'NATIVE_HOST_NOT_FOUND', message: 'pas installé' },
     });
     const state = await resolveHostState(client);
@@ -50,7 +50,7 @@ describe('resolveHostState', () => {
   });
 
   it('does not ask for status once the ping failed', async () => {
-    const client = new MockNativeHostClient({
+    const client = createMockNativeHostClient({
       failWith: { code: 'NATIVE_HOST_NOT_FOUND', message: 'pas installé' },
     });
     await resolveHostState(client);
@@ -58,7 +58,7 @@ describe('resolveHostState', () => {
   });
 
   it('stops at a protocol mismatch rather than reading a shape it may not know', async () => {
-    const client = new MockNativeHostClient({
+    const client = createMockNativeHostClient({
       replies: {
         PING: { status: 'ready', version: '0.0.1', protocolVersion: PROTOCOL_VERSION + 1 },
         GET_STATUS: statusData(),
@@ -75,7 +75,7 @@ describe('resolveHostState', () => {
   });
 
   it('reports unavailable when the status call fails', async () => {
-    const client = new MockNativeHostClient({ replies: { PING: PING } });
+    const client = createMockNativeHostClient({ replies: { PING: PING } });
     const state = await resolveHostState(client);
     expect(state.kind).toBe('unavailable');
   });

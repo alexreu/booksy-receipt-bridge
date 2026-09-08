@@ -1,7 +1,7 @@
 import type { Readable, Writable } from 'node:stream';
 import type { NativeResponse } from '@brb/shared';
 import type { Logger } from '../logging/logger.ts';
-import { FrameReader, encodeFrame } from './framing.ts';
+import { createFrameReader, encodeFrame } from './framing.ts';
 
 export interface ServeOptions {
   input: Readable;
@@ -22,7 +22,7 @@ export interface ServeOptions {
  */
 export async function serve(options: ServeOptions): Promise<void> {
   const { input, output, log, handle } = options;
-  const reader = new FrameReader();
+  const reader = createFrameReader();
 
   log.info('Connexion Native Messaging ouverte');
 

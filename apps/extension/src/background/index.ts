@@ -11,14 +11,15 @@
  * in the host (plan section 18), detected receipts live in session storage, and
  * every native call is one-shot.
  */
-import { ChromeNativeHostClient } from '../messaging/client.ts';
+import { systemClock } from '@brb/shared';
+import { createChromeNativeHostClient } from '../messaging/client.ts';
 import type { DownloadCandidate } from '../downloads/filter.ts';
 import type { SessionStorage } from '../downloads/store.ts';
 import { handleFinishedDownload } from '../downloads/watcher.ts';
 import { activeTabResultOf, type ActiveTabResult } from '../tabs/active-pdf.ts';
 import { handleExtensionMessage } from './router.ts';
 
-const client = new ChromeNativeHostClient((application, message) =>
+const client = createChromeNativeHostClient((application, message) =>
   chrome.runtime.sendNativeMessage(application, message),
 );
 
@@ -118,6 +119,7 @@ chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
       fetchActiveTab,
       setBadge,
       log,
+      clock: systemClock,
     },
   )
     .then(sendResponse)
@@ -150,6 +152,7 @@ chrome.downloads.onChanged.addListener((delta) => {
     lookup: lookupDownload,
     setBadge,
     log,
+    now: systemClock,
   });
 });
 

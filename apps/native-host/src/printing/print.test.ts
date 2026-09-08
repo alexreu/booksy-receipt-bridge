@@ -2,8 +2,9 @@ import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { MockPrinterAdapter } from '@brb/printer';
+import { createMockPrinterAdapter } from '@brb/printer';
 import { decodeToText } from '@brb/receipt-renderer';
+import { fixedClock } from '@brb/shared';
 import { DEFAULT_CONFIG, type BridgeConfig } from '../config/config.ts';
 import { silentLogger } from '../logging/logger.ts';
 import { printReceipt, printTest, type PrintDeps } from './print.ts';
@@ -34,10 +35,11 @@ function config(overrides: Partial<BridgeConfig> = {}): BridgeConfig {
 
 function deps(overrides: Partial<PrintDeps> = {}): PrintDeps {
   return {
-    printer: new MockPrinterAdapter(),
+    printer: createMockPrinterAdapter(),
     config: config(),
     log: silentLogger(),
     historyPath,
+    now: fixedClock(1_700_000_000_000),
     ...overrides,
   };
 }
@@ -51,7 +53,7 @@ describe('printTest', () => {
   });
 
   it('sends the diagnostic ticket and reports the substituted characters', async () => {
-    const printer = new MockPrinterAdapter();
+    const printer = createMockPrinterAdapter();
     const outcome = await printTest(deps({ printer }));
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
@@ -61,7 +63,7 @@ describe('printTest', () => {
   });
 
   it('reports a spooler failure as PRINT_FAILED', async () => {
-    const printer = new MockPrinterAdapter({ failWith: 'imprimante hors ligne' });
+    const printer = createMockPrinterAdapter({ failWith: 'imprimante hors ligne' });
     const outcome = await printTest(deps({ printer }));
     expect(outcome).toMatchObject({ ok: false, code: 'PRINT_FAILED' });
   });
@@ -69,7 +71,7 @@ describe('printTest', () => {
 
 describe('printReceipt - the happy path on a real receipt layout', () => {
   it('reads the PDF and prints the ticket', async () => {
-    const printer = new MockPrinterAdapter();
+    const printer = createMockPrinterAdapter();
     const outcome = await printReceipt(
       { source: { kind: 'path', path: receiptPath } },
       deps({ printer }),
@@ -89,7 +91,7 @@ describe('printReceipt - the happy path on a real receipt layout', () => {
   });
 
   it('honours the configured column count', async () => {
-    const printer = new MockPrinterAdapter();
+    const printer = createMockPrinterAdapter();
     await printReceipt(
       { source: { kind: 'path', path: receiptPath } },
       deps({
@@ -112,7 +114,7 @@ describe('printReceipt - the happy path on a real receipt layout', () => {
 
 describe('printReceipt - refusals happen before any byte reaches the spooler', () => {
   it('refuses with no printer configured', async () => {
-    const printer = new MockPrinterAdapter();
+    const printer = createMockPrinterAdapter();
     const outcome = await printReceipt(
       { source: { kind: 'path', path: receiptPath } },
       deps({ printer, config: config({ printer: { ...DEFAULT_CONFIG.printer, name: '' } }) }),
@@ -122,7 +124,7 @@ describe('printReceipt - refusals happen before any byte reaches the spooler', (
   });
 
   it('refuses a file outside the allowed directories', async () => {
-    const printer = new MockPrinterAdapter();
+    const printer = createMockPrinterAdapter();
     const outcome = await printReceipt(
       { source: { kind: 'path', path: FIXTURE } },
       deps({ printer }),
@@ -132,7 +134,7 @@ describe('printReceipt - refusals happen before any byte reaches the spooler', (
   });
 
   it('refuses a PDF that is not a Booksy receipt - AC17', async () => {
-    const printer = new MockPrinterAdapter();
+    const printer = createMockPrinterAdapter();
     const other = join(downloads, 'facture.pdf');
     writeFileSync(other, Buffer.from('%PDF-1.4\nFACTURE 2026-0042\n'));
 
@@ -144,7 +146,7 @@ describe('printReceipt - refusals happen before any byte reaches the spooler', (
   });
 
   it('reports a spooler failure without claiming success', async () => {
-    const printer = new MockPrinterAdapter({ failWith: 'bourrage papier' });
+    const printer = createMockPrinterAdapter({ failWith: 'bourrage papier' });
     const outcome = await printReceipt(
       { source: { kind: 'path', path: receiptPath } },
       deps({ printer }),
@@ -155,7 +157,7 @@ describe('printReceipt - refusals happen before any byte reaches the spooler', (
 
 describe('printReceipt - deduplication', () => {
   it('prints once for a double click', async () => {
-    const printer = new MockPrinterAdapter();
+    const printer = createMockPrinterAdapter();
     const shared = deps({ printer });
 
     const first = await printReceipt({ source: { kind: 'path', path: receiptPath } }, shared);
@@ -178,7 +180,7 @@ describe('printReceipt - deduplication', () => {
   });
 
   it('honours an explicit dedupe key from the caller', async () => {
-    const printer = new MockPrinterAdapter();
+    const printer = createMockPrinterAdapter();
     const shared = deps({ printer });
     await printReceipt(
       { source: { kind: 'path', path: receiptPath }, dedupeKey: 'download:42' },
@@ -195,7 +197,7 @@ describe('printReceipt - deduplication', () => {
 
 describe('printReceipt - the confidence threshold', () => {
   it('lets a user print whatever was read, and reports the confidence', async () => {
-    const printer = new MockPrinterAdapter();
+    const printer = createMockPrinterAdapter();
     const outcome = await printReceipt(
       { source: { kind: 'path', path: receiptPath }, trigger: 'user' },
       deps({
@@ -211,7 +213,7 @@ describe('printReceipt - the confidence threshold', () => {
 
   it('allows an automatic print that exactly meets the threshold', async () => {
     // Plan section 34. The rule lives here because the host owns the config.
-    const printer = new MockPrinterAdapter();
+    const printer = createMockPrinterAdapter();
     const outcome = await printReceipt(
       { source: { kind: 'path', path: receiptPath }, trigger: 'auto' },
       deps({
@@ -231,7 +233,7 @@ describe('printReceipt - the confidence threshold', () => {
   });
 
   it('refuses an automatic print when the reading is too uncertain', async () => {
-    const printer = new MockPrinterAdapter();
+    const printer = createMockPrinterAdapter();
     const partial = join(downloads, 'partiel.pdf');
     // A Booksy-shaped document with no VAT table and no certification: it is
     // recognisable, but not confidently readable.
@@ -293,7 +295,7 @@ describe('printReceipt - warnings pass straight through', () => {
       ]),
     );
 
-    const printer = new MockPrinterAdapter();
+    const printer = createMockPrinterAdapter();
     const outcome = await printReceipt(
       { source: { kind: 'path', path: inconsistent } },
       deps({ printer }),

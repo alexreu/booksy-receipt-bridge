@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Clock } from '@brb/shared';
 
 /**
  * Host logging (plan section 39).
@@ -31,14 +32,14 @@ export interface LoggerOptions {
   level?: LogLevel;
   /** Mirror to stderr. Default true. */
   stderr?: boolean;
-  /** Injectable for tests. */
-  now?: () => Date;
+  /** Required, not defaulted: the log's timestamps are part of its output. */
+  now: Clock;
 }
 
-export function createLogger(options: LoggerOptions = {}): Logger {
+export function createLogger(options: LoggerOptions): Logger {
   const threshold = LOG_LEVELS.indexOf(options.level ?? 'info');
   const toStderr = options.stderr ?? true;
-  const now = options.now ?? ((): Date => new Date());
+  const now = (): Date => new Date(options.now());
 
   let file: string | undefined;
   if (options.dir !== undefined) {

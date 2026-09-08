@@ -2,8 +2,9 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { MockPrinterAdapter, type PrinterAdapter } from '@brb/printer';
+import { createMockPrinterAdapter, type PrinterAdapter } from '@brb/printer';
 import {
+  fixedClock,
   MAX_RESPONSE_BYTES,
   NATIVE_MESSAGE_TYPES,
   type ListPrintersData,
@@ -21,11 +22,12 @@ function context(overrides: Partial<HostContext> = {}): HostContext {
   return {
     version: '9.9.9',
     config: { config: DEFAULT_CONFIG, present: false } satisfies ConfigState,
-    printer: new MockPrinterAdapter(),
+    printer: createMockPrinterAdapter(),
     printerAdapter: 'mock',
     log: silentLogger(),
     configFile: join(dir, 'config.json'),
     historyPath: join(dir, 'print-history.json'),
+    clock: fixedClock(1_700_000_000_000),
     ...overrides,
   };
 }
@@ -73,7 +75,7 @@ describe('dispatch - GET_STATUS', () => {
   it('reports ready when the configured printer is present', async () => {
     const status = await statusOf({
       config: configured(),
-      printer: new MockPrinterAdapter({ printers: [{ name: PRINTER_NAME }] }),
+      printer: createMockPrinterAdapter({ printers: [{ name: PRINTER_NAME }] }),
     });
     expect(status).toMatchObject({
       status: 'ready',
@@ -86,7 +88,7 @@ describe('dispatch - GET_STATUS', () => {
   it('reports the printer as not found when the configured name is absent', async () => {
     const status = await statusOf({
       config: configured(),
-      printer: new MockPrinterAdapter({ printers: [{ name: 'Autre imprimante' }] }),
+      printer: createMockPrinterAdapter({ printers: [{ name: 'Autre imprimante' }] }),
     });
     expect(status.printerConfigured).toBe(true);
     expect(status.printerFound).toBe(false);
@@ -226,7 +228,7 @@ describe('dispatch - LIST_PRINTERS', () => {
   it('returns the queues and names the implementation that answered', async () => {
     const response = await dispatch(
       { id: '1', type: 'LIST_PRINTERS' },
-      context({ printer: new MockPrinterAdapter({ printers: [{ name: 'A' }, { name: 'B' }] }) }),
+      context({ printer: createMockPrinterAdapter({ printers: [{ name: 'A' }, { name: 'B' }] }) }),
     );
     expect(response.success).toBe(true);
     const data = response.data as ListPrintersData;

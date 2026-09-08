@@ -3,6 +3,7 @@ import {
   MAX_RESPONSE_BYTES,
   PROTOCOL_VERSION,
   type BridgeErrorCode,
+  type Clock,
   type ConfigData,
   type ListPrintersData,
   type NativeMessageType,
@@ -44,6 +45,8 @@ export interface HostContext {
   configFile: string;
   /** Where recent prints are remembered; see printing/dedupe.ts. */
   historyPath: string;
+  /** The one place time enters the host. */
+  clock: Clock;
 }
 
 /**
@@ -188,6 +191,7 @@ function printDeps(context: HostContext): Parameters<typeof printTest>[0] {
     config: context.config.config,
     log: context.log,
     historyPath: context.historyPath,
+    now: context.clock,
   };
 }
 

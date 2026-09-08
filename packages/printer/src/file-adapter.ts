@@ -7,8 +7,10 @@ import type { Printer, PrinterAdapter, PrinterConfig, PrintResult } from './type
 export interface FilePrinterAdapterOptions {
   /** Directory the artefacts land in. */
   outDir: string;
-  /** Base name; defaults to a timestamp. */
-  name?: string;
+  /** Base name. Required rather than defaulted to a timestamp: a hidden clock
+   * would make the written filenames unpredictable, and these files are
+   * compared in tests. */
+  name: string;
 }
 
 /**
@@ -21,37 +23,46 @@ export interface FilePrinterAdapterOptions {
  * .bin is what the spike script sends to the spooler, and the .txt/.svg are what
  * a human checks in the meantime.
  */
-export class FilePrinterAdapter implements PrinterAdapter {
-  readonly written: string[] = [];
+export interface FilePrinter extends PrinterAdapter {
+  /** Paths written, in order. */
+  readonly written: readonly string[];
+}
 
-  constructor(private readonly options: FilePrinterAdapterOptions) {}
+export function createFilePrinterAdapter(options: FilePrinterAdapterOptions): FilePrinter {
+  const written: string[] = [];
 
-  list(): Promise<Printer[]> {
-    return Promise.resolve([
-      { name: `file:${this.options.outDir}`, isDefault: true, status: 'file sink' },
-    ]);
-  }
+  const list = (): Promise<Printer[]> =>
+    Promise.resolve([{ name: `file:${options.outDir}`, isDefault: true, status: 'file sink' }]);
 
-  async printRaw(bytes: Uint8Array, config: PrinterConfig): Promise<PrintResult> {
-    const base = this.options.name ?? new Date().toISOString().replace(/[:.]/g, '-');
-    await mkdir(this.options.outDir, { recursive: true });
+  const printRaw = async (bytes: Uint8Array, config: PrinterConfig): Promise<PrintResult> => {
+    const base = options.name;
+    await mkdir(options.outDir, { recursive: true });
 
-    const binPath = join(this.options.outDir, `${base}.escpos.bin`);
-    const textPath = join(this.options.outDir, `${base}.txt`);
-    const svgPath = join(this.options.outDir, `${base}.svg`);
+    const binPath = join(options.outDir, `${base}.escpos.bin`);
+    const textPath = join(options.outDir, `${base}.txt`);
+    const svgPath = join(options.outDir, `${base}.svg`);
 
     await writeFile(binPath, bytes);
     await writeFile(textPath, `${decodeToText(bytes)}\n`, 'utf8');
     await writeFile(svgPath, decodeToSvg(bytes, config.columns), 'utf8');
-    this.written.push(binPath, textPath, svgPath);
+    written.push(binPath, textPath, svgPath);
 
     return { ok: true, jobId: base, bytesSent: bytes.length };
-  }
+  };
 
-  printTest(config: PrinterConfig): Promise<PrintResult> {
+  const printTest = (config: PrinterConfig): Promise<PrintResult> => {
     const { bytes, unmapped } = emitEscPos(buildTestTicketLayout(config), {
       ...(config.cutFeedDots === undefined ? {} : { cutFeedDots: config.cutFeedDots }),
     });
-    return this.printRaw(bytes, config).then((result) => ({ ...result, unmapped }));
-  }
+    return printRaw(bytes, config).then((result) => ({ ...result, unmapped }));
+  };
+
+  return {
+    list,
+    printRaw,
+    printTest,
+    get written() {
+      return written;
+    },
+  };
 }

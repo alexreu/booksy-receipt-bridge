@@ -13,7 +13,7 @@
  */
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { FrameReader, encodeFrame } from '../apps/native-host/src/messaging/framing.ts';
+import { createFrameReader, encodeFrame } from '../apps/native-host/src/messaging/framing.ts';
 
 const HOST = fileURLToPath(new URL('../apps/native-host/src/main.ts', import.meta.url));
 
@@ -28,7 +28,7 @@ const child = spawn(process.execPath, ['--import', 'tsx', HOST], {
   stdio: ['pipe', 'pipe', 'inherit'],
 });
 
-const reader = new FrameReader();
+const reader = createFrameReader();
 let received = 0;
 let expected = messages.length + (bad ? 1 : 0);
 

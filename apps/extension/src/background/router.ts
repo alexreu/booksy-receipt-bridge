@@ -15,6 +15,7 @@ import {
   type ExtensionRequest,
   type ExtensionResponse,
 } from '../messaging/protocol.ts';
+import type { Clock } from '@brb/shared';
 import type { ActiveTabPdf } from '../messaging/protocol.ts';
 import { resolveHostState } from '../messaging/state.ts';
 
@@ -54,6 +55,8 @@ export interface RouterDeps {
   lookupDownload?: (downloadId: number) => Promise<DownloadCandidate | undefined>;
   /** Show how many detected receipts still await a decision. */
   setBadge?: (count: number) => void;
+  /** The one place time enters the worker. */
+  clock: Clock;
   log?: (message: string) => void;
 }
 
@@ -179,6 +182,7 @@ async function dispatch(
         storage: deps.storage,
         lookup: deps.lookupDownload,
         recent: deps.recentDownloads,
+        now: deps.clock,
         ...(deps.setBadge === undefined ? {} : { setBadge: deps.setBadge }),
         ...(deps.log === undefined ? {} : { log: deps.log }),
       });

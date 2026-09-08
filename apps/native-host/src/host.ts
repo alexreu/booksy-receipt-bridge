@@ -1,5 +1,5 @@
-import { MockPrinterAdapter, WindowsPrinterAdapter, type PrinterAdapter } from '@brb/printer';
-import type { NativeResponse } from '@brb/shared';
+import { createMockPrinterAdapter, createWindowsPrinterAdapter, type PrinterAdapter } from '@brb/printer';
+import { systemClock, type Clock, type NativeResponse } from '@brb/shared';
 import { loadConfig } from './config/config.ts';
 import { createLogger, type Logger } from './logging/logger.ts';
 import { dispatch, withinResponseLimit, type HostContext } from './messaging/dispatch.ts';
@@ -14,6 +14,8 @@ export interface CreateHostOptions {
   log?: Logger;
   configFile?: string;
   historyPath?: string;
+  /** Injected so a test can pin every timestamp the host produces. */
+  clock?: Clock;
 }
 
 export interface Host {
@@ -31,13 +33,13 @@ export interface Host {
  */
 function selectPrinter(env: NodeJS.ProcessEnv): { printer: PrinterAdapter; name: string } {
   const forced = env['BRB_PRINTER'];
-  if (forced === 'mock') return { printer: new MockPrinterAdapter(), name: 'mock' };
-  if (forced === 'windows') return { printer: new WindowsPrinterAdapter(), name: 'windows' };
+  if (forced === 'mock') return { printer: createMockPrinterAdapter(), name: 'mock' };
+  if (forced === 'windows') return { printer: createWindowsPrinterAdapter(), name: 'windows' };
 
   if (process.platform === 'win32') {
-    return { printer: new WindowsPrinterAdapter(), name: 'windows' };
+    return { printer: createWindowsPrinterAdapter(), name: 'windows' };
   }
-  return { printer: new MockPrinterAdapter(), name: 'mock' };
+  return { printer: createMockPrinterAdapter(), name: 'mock' };
 }
 
 /**
@@ -47,7 +49,8 @@ function selectPrinter(env: NodeJS.ProcessEnv): { printer: PrinterAdapter; name:
  * be driven in tests without touching a real config file or a real spooler.
  */
 export function createHost(options: CreateHostOptions = {}): Host {
-  const log = options.log ?? createLogger({ dir: logDir() });
+  const clock = options.clock ?? systemClock;
+  const log = options.log ?? createLogger({ dir: logDir(), now: clock });
   const file = options.configFile ?? configPath();
   const config = loadConfig(file);
 
@@ -61,6 +64,7 @@ export function createHost(options: CreateHostOptions = {}): Host {
     printer: options.printer ?? selected.printer,
     printerAdapter: options.printerAdapter ?? selected.name,
     log,
+    clock,
     configFile: file,
     historyPath: options.historyPath ?? join(dataDir(), 'print-history.json'),
   };

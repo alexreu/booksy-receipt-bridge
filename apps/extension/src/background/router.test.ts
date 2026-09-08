@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  fixedClock,
   PROTOCOL_VERSION,
   type ConfigData,
   type ListPrintersData,
   type PingData,
   type StatusData,
 } from '@brb/shared';
-import { MockNativeHostClient } from '../messaging/mock-client.ts';
+import { createMockNativeHostClient } from '../messaging/mock-client.ts';
 import { STORAGE_KEY, type DetectedReceipt } from '../downloads/store.ts';
 import { handleExtensionMessage, type RouterDeps } from './router.ts';
 
@@ -39,9 +40,10 @@ function memoryStorage(initial: Record<string, unknown> = {}) {
 
 function deps(overrides: Partial<RouterDeps> = {}): RouterDeps {
   return {
-    client: new MockNativeHostClient({ replies: { PING: PING, GET_STATUS: STATUS } }),
+    client: createMockNativeHostClient({ replies: { PING: PING, GET_STATUS: STATUS } }),
     extensionId: EXTENSION_ID,
     storage: memoryStorage(),
+    clock: fixedClock(1_700_000_000_000),
     ...overrides,
   };
 }
@@ -52,7 +54,7 @@ describe('handleExtensionMessage - sender check', () => {
     // alongside a web page. Without this check the worker is an open relay to
     // the native host.
     const log = vi.fn();
-    const client = new MockNativeHostClient();
+    const client = createMockNativeHostClient();
     const response = await handleExtensionMessage(
       { kind: 'GET_HOST_STATE' },
       { id: 'someone-else' },
@@ -64,7 +66,7 @@ describe('handleExtensionMessage - sender check', () => {
   });
 
   it('refuses a message with no sender id', async () => {
-    const client = new MockNativeHostClient();
+    const client = createMockNativeHostClient();
     const response = await handleExtensionMessage({ kind: 'PING_HOST' }, {}, deps({ client }));
     expect(response.kind).toBe('ERROR');
     expect(client.sent).toEqual([]);
@@ -73,7 +75,7 @@ describe('handleExtensionMessage - sender check', () => {
 
 describe('handleExtensionMessage - validation', () => {
   it('refuses an unknown internal message', async () => {
-    const client = new MockNativeHostClient();
+    const client = createMockNativeHostClient();
     for (const raw of [null, 'GET_HOST_STATE', {}, { kind: 'RUN_ANYTHING' }, { kind: 7 }]) {
       const response = await handleExtensionMessage(raw, { id: EXTENSION_ID }, deps({ client }));
       expect(response).toEqual({ kind: 'ERROR', message: 'Message interne inconnu.' });
@@ -84,7 +86,7 @@ describe('handleExtensionMessage - validation', () => {
   it('does not forward an arbitrary native message type from a caller', async () => {
     // The internal protocol is a closed set of intents, not a passthrough: a
     // content script cannot name a native message type and have it relayed.
-    const client = new MockNativeHostClient({ replies: { PING: PING, GET_STATUS: STATUS } });
+    const client = createMockNativeHostClient({ replies: { PING: PING, GET_STATUS: STATUS } });
     await handleExtensionMessage(
       { kind: 'GET_HOST_STATE', type: 'PRINT_RECEIPT' },
       { id: EXTENSION_ID },
@@ -108,7 +110,7 @@ describe('handleExtensionMessage - GET_HOST_STATE', () => {
   });
 
   it('returns an unavailable state rather than an error when the host is absent', async () => {
-    const client = new MockNativeHostClient({
+    const client = createMockNativeHostClient({
       failWith: { code: 'NATIVE_HOST_NOT_FOUND', message: 'pas installé' },
     });
     const response = await handleExtensionMessage(
@@ -122,7 +124,7 @@ describe('handleExtensionMessage - GET_HOST_STATE', () => {
 
 describe('handleExtensionMessage - PING_HOST', () => {
   it('pings then returns the full state', async () => {
-    const client = new MockNativeHostClient({ replies: { PING: PING, GET_STATUS: STATUS } });
+    const client = createMockNativeHostClient({ replies: { PING: PING, GET_STATUS: STATUS } });
     const response = await handleExtensionMessage(
       { kind: 'PING_HOST' },
       { id: EXTENSION_ID },
@@ -133,7 +135,7 @@ describe('handleExtensionMessage - PING_HOST', () => {
   });
 
   it('reports the host error message when the ping fails', async () => {
-    const client = new MockNativeHostClient({
+    const client = createMockNativeHostClient({
       failWith: { code: 'NATIVE_HOST_NOT_FOUND', message: 'pas installé sur ce PC' },
     });
     const response = await handleExtensionMessage(
@@ -177,7 +179,7 @@ describe('handleExtensionMessage - a content script gets read-only access', () =
   });
 
   it('refuses SET_CONFIG', async () => {
-    const client = new MockNativeHostClient({ replies: { SET_CONFIG: CONFIG } });
+    const client = createMockNativeHostClient({ replies: { SET_CONFIG: CONFIG } });
     const response = await handleExtensionMessage(
       { kind: 'SET_CONFIG', patch: { printer: { name: 'Autre' } } },
       fromTab,
@@ -188,14 +190,14 @@ describe('handleExtensionMessage - a content script gets read-only access', () =
   });
 
   it('refuses PRINT_TEST', async () => {
-    const client = new MockNativeHostClient({ replies: { PRINT_TEST: {} } });
+    const client = createMockNativeHostClient({ replies: { PRINT_TEST: {} } });
     const response = await handleExtensionMessage({ kind: 'PRINT_TEST' }, fromTab, deps({ client }));
     expect(response.kind).toBe('ERROR');
     expect(client.sent).toEqual([]);
   });
 
   it('allows those same intents from an extension page', async () => {
-    const client = new MockNativeHostClient({ replies: { PRINT_TEST: { bytesSent: 700 } } });
+    const client = createMockNativeHostClient({ replies: { PRINT_TEST: { bytesSent: 700 } } });
     const response = await handleExtensionMessage(
       { kind: 'PRINT_TEST' },
       { id: EXTENSION_ID, origin: `chrome-extension://${EXTENSION_ID}` },
@@ -207,7 +209,7 @@ describe('handleExtensionMessage - a content script gets read-only access', () =
   it('allows an extension page that is open in a tab', async () => {
     // Regression: the options page declares open_in_tab, so it arrives with a
     // tab set and was refused every save.
-    const client = new MockNativeHostClient({ replies: { SET_CONFIG: CONFIG } });
+    const client = createMockNativeHostClient({ replies: { SET_CONFIG: CONFIG } });
     const response = await handleExtensionMessage(
       { kind: 'SET_CONFIG', patch: { printer: { name: 'X' } } },
       {
@@ -221,7 +223,7 @@ describe('handleExtensionMessage - a content script gets read-only access', () =
   });
 
   it('falls back to the page URL when Chrome omits the origin', async () => {
-    const client = new MockNativeHostClient({ replies: { PRINT_TEST: {} } });
+    const client = createMockNativeHostClient({ replies: { PRINT_TEST: {} } });
     const response = await handleExtensionMessage(
       { kind: 'PRINT_TEST' },
       { id: EXTENSION_ID, url: `chrome-extension://${EXTENSION_ID}/popup/index.html` },
@@ -231,7 +233,7 @@ describe('handleExtensionMessage - a content script gets read-only access', () =
   });
 
   it('refuses a page whose origin merely starts like ours', async () => {
-    const client = new MockNativeHostClient({ replies: { PRINT_TEST: {} } });
+    const client = createMockNativeHostClient({ replies: { PRINT_TEST: {} } });
     const response = await handleExtensionMessage(
       { kind: 'PRINT_TEST' },
       { id: EXTENSION_ID, origin: `chrome-extension://${EXTENSION_ID}evil` },
@@ -244,7 +246,7 @@ describe('handleExtensionMessage - a content script gets read-only access', () =
 
 describe('handleExtensionMessage - LIST_PRINTERS', () => {
   it('returns the queues and the driver that answered', async () => {
-    const client = new MockNativeHostClient({ replies: { LIST_PRINTERS: PRINTERS } });
+    const client = createMockNativeHostClient({ replies: { LIST_PRINTERS: PRINTERS } });
     const response = await handleExtensionMessage(
       { kind: 'LIST_PRINTERS' },
       { id: EXTENSION_ID },
@@ -259,7 +261,7 @@ describe('handleExtensionMessage - LIST_PRINTERS', () => {
 
   it('reports the host error rather than an empty list', async () => {
     // An empty list and a failed call mean different things to the user.
-    const client = new MockNativeHostClient({
+    const client = createMockNativeHostClient({
       failWith: { code: 'NATIVE_HOST_NOT_FOUND', message: 'pas installé' },
     });
     const response = await handleExtensionMessage(
@@ -273,7 +275,7 @@ describe('handleExtensionMessage - LIST_PRINTERS', () => {
 
 describe('handleExtensionMessage - configuration', () => {
   it('reads the configuration', async () => {
-    const client = new MockNativeHostClient({ replies: { GET_CONFIG: CONFIG } });
+    const client = createMockNativeHostClient({ replies: { GET_CONFIG: CONFIG } });
     const response = await handleExtensionMessage(
       { kind: 'GET_CONFIG' },
       { id: EXTENSION_ID },
@@ -283,7 +285,7 @@ describe('handleExtensionMessage - configuration', () => {
   });
 
   it('forwards the patch to the host and returns what it stored', async () => {
-    const client = new MockNativeHostClient({ replies: { SET_CONFIG: CONFIG } });
+    const client = createMockNativeHostClient({ replies: { SET_CONFIG: CONFIG } });
     const response = await handleExtensionMessage(
       { kind: 'SET_CONFIG', patch: { printer: { name: 'EPSON TM-T88V Receipt5' } } },
       { id: EXTENSION_ID },
@@ -298,7 +300,7 @@ describe('handleExtensionMessage - configuration', () => {
   });
 
   it('surfaces a configuration file error alongside the values', async () => {
-    const client = new MockNativeHostClient({
+    const client = createMockNativeHostClient({
       replies: { GET_CONFIG: { ...CONFIG, error: 'fichier illisible' } },
     });
     const response = await handleExtensionMessage(
@@ -312,7 +314,7 @@ describe('handleExtensionMessage - configuration', () => {
 
 describe('handleExtensionMessage - PRINT_TEST', () => {
   it('reports the substituted characters so they can be shown', async () => {
-    const client = new MockNativeHostClient({
+    const client = createMockNativeHostClient({
       replies: { PRINT_TEST: { bytesSent: 766, unmapped: ['’', 'œ'] } },
     });
     const response = await handleExtensionMessage(
@@ -327,7 +329,7 @@ describe('handleExtensionMessage - PRINT_TEST', () => {
   });
 
   it('reports a print failure as an error', async () => {
-    const client = new MockNativeHostClient();
+    const client = createMockNativeHostClient();
     const response = await handleExtensionMessage(
       { kind: 'PRINT_TEST' },
       { id: EXTENSION_ID },
@@ -365,7 +367,7 @@ describe('handleExtensionMessage - detected receipts', () => {
     // The caller never supplies a path, so nothing in a page can nominate a
     // file for the host to open.
     const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
-    const client = new MockNativeHostClient({
+    const client = createMockNativeHostClient({
       replies: {
         PRINT_RECEIPT: { ticketNumber: '1167', confidence: 1, warnings: [], bytesSent: 800 },
       },
@@ -389,7 +391,7 @@ describe('handleExtensionMessage - detected receipts', () => {
 
   it('removes it from the list once printed, rather than logging it', async () => {
     const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
-    const client = new MockNativeHostClient({
+    const client = createMockNativeHostClient({
       replies: { PRINT_RECEIPT: { ticketNumber: '1167', confidence: 1, warnings: [] } },
     });
     const setBadge = vi.fn();
@@ -407,7 +409,7 @@ describe('handleExtensionMessage - detected receipts', () => {
   });
 
   it('refuses an id it never recorded', async () => {
-    const client = new MockNativeHostClient();
+    const client = createMockNativeHostClient();
     const response = await handleExtensionMessage(
       { kind: 'PRINT_DETECTED', downloadId: 999 },
       fromPage,
@@ -419,7 +421,7 @@ describe('handleExtensionMessage - detected receipts', () => {
 
   it('keeps it on the list when the print failed', async () => {
     const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
-    const client = new MockNativeHostClient({
+    const client = createMockNativeHostClient({
       failWith: { code: 'PRINTER_OFFLINE', message: 'imprimante hors ligne' },
     });
 
@@ -447,7 +449,7 @@ describe('handleExtensionMessage - detected receipts', () => {
 
   it('refuses printing and dismissing from a content script', async () => {
     const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
-    const client = new MockNativeHostClient();
+    const client = createMockNativeHostClient();
     const fromTab = { id: EXTENSION_ID, origin: 'https://booksy.com' };
 
     for (const kind of ['PRINT_DETECTED', 'DISMISS_DETECTED'] as const) {
@@ -508,7 +510,7 @@ describe('handleExtensionMessage - the PDF in the active tab', () => {
   });
 
   it('prints the tab as bytes, since it is not a local file', async () => {
-    const client = new MockNativeHostClient({
+    const client = createMockNativeHostClient({
       replies: {
         PRINT_RECEIPT: { ticketNumber: '1167', confidence: 1, warnings: [], bytesSent: 800 },
       },
@@ -527,7 +529,7 @@ describe('handleExtensionMessage - the PDF in the active tab', () => {
   });
 
   it('reports a fetch failure without asking the host to print', async () => {
-    const client = new MockNativeHostClient();
+    const client = createMockNativeHostClient();
     const response = await handleExtensionMessage(
       { kind: 'PRINT_ACTIVE_TAB' },
       fromPage,
@@ -545,7 +547,7 @@ describe('handleExtensionMessage - the PDF in the active tab', () => {
   it('refuses to print a tab on a page script’s behalf', async () => {
     // The intent carries no url, so a page cannot nominate a document - but it
     // must not be able to trigger a print of whatever is on screen either.
-    const client = new MockNativeHostClient();
+    const client = createMockNativeHostClient();
     const response = await handleExtensionMessage(
       { kind: 'PRINT_ACTIVE_TAB' },
       { id: EXTENSION_ID, origin: 'https://booksy.com' },

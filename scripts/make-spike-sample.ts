@@ -8,7 +8,7 @@ import { buildTicketLayout, nominalReceipt, stressReceipt } from '@brb/ticket-la
 import { emitEscPos } from '@brb/receipt-renderer';
 import {
   DEFAULT_PRINTER_CONFIG,
-  FilePrinterAdapter,
+  createFilePrinterAdapter,
   type PrinterConfig,
 } from '@brb/printer';
 
@@ -21,7 +21,7 @@ const config: PrinterConfig = {
   ...DEFAULT_PRINTER_CONFIG,
 };
 
-const testTicket = new FilePrinterAdapter({ outDir: OUT_DIR, name: 'spike-test-ticket' });
+const testTicket = createFilePrinterAdapter({ outDir: OUT_DIR, name: 'spike-test-ticket' });
 const testResult = await testTicket.printTest(config);
 
 const written: string[] = [...testTicket.written];
@@ -32,7 +32,7 @@ for (const [name, make] of [
   ['spike-stress-ticket', stressReceipt],
 ] as const) {
   const { bytes, unmapped } = emitEscPos(buildTicketLayout(make(), { columns: config.columns }));
-  const sink = new FilePrinterAdapter({ outDir: OUT_DIR, name });
+  const sink = createFilePrinterAdapter({ outDir: OUT_DIR, name });
   await sink.printRaw(bytes, config);
   written.push(...sink.written);
   for (const char of unmapped) substituted.add(char);

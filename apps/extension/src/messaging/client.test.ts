@@ -1,17 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { NativeMessage, PingData } from '@brb/shared';
 import {
-  ChromeNativeHostClient,
+  createChromeNativeHostClient,
   nextMessageId,
   transportError,
+  type NativeHostClient,
   type SendNativeMessage,
 } from './client.ts';
 import { NATIVE_HOST_NAME } from './host-name.ts';
 
 const PING: NativeMessage = { id: 'abc', type: 'PING' };
 
-function clientWith(send: SendNativeMessage): ChromeNativeHostClient {
-  return new ChromeNativeHostClient(send);
+function clientWith(send: SendNativeMessage): NativeHostClient {
+  return createChromeNativeHostClient(send);
 }
 
 describe('NATIVE_HOST_NAME', () => {
@@ -22,7 +23,7 @@ describe('NATIVE_HOST_NAME', () => {
   });
 });
 
-describe('ChromeNativeHostClient', () => {
+describe('createChromeNativeHostClient', () => {
   it('sends to the registered host name', async () => {
     const send = vi.fn<SendNativeMessage>().mockResolvedValue({ id: 'abc', success: true });
     await clientWith(send).send(PING);
@@ -132,5 +133,11 @@ describe('nextMessageId', () => {
   it('does not repeat', () => {
     const ids = new Set(Array.from({ length: 500 }, () => nextMessageId()));
     expect(ids.size).toBe(500);
+  });
+
+  it('is built from a clock and a counter, not from randomness', () => {
+    // So a test can pin the sequence. There is nothing to guess in a
+    // correlation id; it only has to distinguish one in-flight reply.
+    expect(nextMessageId()).toMatch(/^x-[0-9a-z]+-[0-9a-z]+$/);
   });
 });

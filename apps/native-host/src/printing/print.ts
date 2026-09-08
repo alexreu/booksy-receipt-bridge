@@ -2,7 +2,7 @@ import { BooksyParseError, parseBooksyReceipt } from '@brb/booksy-parser';
 import { emitEscPos } from '@brb/receipt-renderer';
 import { buildTicketLayout } from '@brb/ticket-layout';
 import type { PrintReceiptData, PrintTestData, ReceiptSource } from '@brb/shared';
-import type { BridgeErrorCode } from '@brb/shared';
+import type { BridgeErrorCode, Clock } from '@brb/shared';
 import type { PrinterAdapter, PrinterConfig } from '@brb/printer';
 import type { BridgeConfig } from '../config/config.ts';
 import type { Logger } from '../logging/logger.ts';
@@ -19,7 +19,7 @@ export interface PrintDeps {
   log: Logger;
   /** Where the print history lives; see dedupe.ts. */
   historyPath: string;
-  now?: () => number;
+  now: Clock;
 }
 
 export function printerConfigOf(config: BridgeConfig): PrinterConfig {
@@ -118,7 +118,7 @@ export async function printReceipt(
   const { duplicate } = checkAndRecord(key, {
     path: deps.historyPath,
     windowMs: windowFor(trigger),
-    ...(deps.now === undefined ? {} : { now: deps.now }),
+    now: deps.now,
   });
 
   const base: PrintReceiptData = {
