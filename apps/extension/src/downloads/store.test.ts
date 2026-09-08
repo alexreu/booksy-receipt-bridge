@@ -6,7 +6,6 @@ import {
   pendingCount,
   readDetected,
   rememberDetected,
-  updateDetected,
   type DetectedReceipt,
   type SessionStorage,
 } from './store.ts';
@@ -81,7 +80,7 @@ describe('rememberDetected', () => {
     expect(all[0]?.ticketNumber).toBe('7bis');
   });
 
-  it('caps the list, since it is a "just now" list and not a history', async () => {
+  it('caps the list, since it holds pending work and never a log', async () => {
     for (let id = 0; id <= MAX_DETECTED + 3; id++) {
       await rememberDetected(storage, receipt({ downloadId: id }));
     }
@@ -97,23 +96,6 @@ describe('rememberDetected', () => {
   });
 });
 
-describe('updateDetected', () => {
-  it('marks one entry without touching the others', async () => {
-    await rememberDetected(storage, receipt({ downloadId: 1 }));
-    await rememberDetected(storage, receipt({ downloadId: 2 }));
-
-    const all = await updateDetected(storage, 1, { printedAt: 2_000 });
-    expect(all.find((entry) => entry.downloadId === 1)?.printedAt).toBe(2_000);
-    expect(all.find((entry) => entry.downloadId === 2)?.printedAt).toBeUndefined();
-  });
-
-  it('does nothing for an unknown id', async () => {
-    await rememberDetected(storage, receipt({ downloadId: 1 }));
-    const all = await updateDetected(storage, 99, { printedAt: 2_000 });
-    expect(all.every((entry) => entry.printedAt === undefined)).toBe(true);
-  });
-});
-
 describe('forgetDetected', () => {
   it('removes only the named entry', async () => {
     await rememberDetected(storage, receipt({ downloadId: 1 }));
@@ -123,10 +105,8 @@ describe('forgetDetected', () => {
 });
 
 describe('pendingCount', () => {
-  it('counts what still awaits a decision', () => {
-    expect(
-      pendingCount([receipt({ downloadId: 1 }), receipt({ downloadId: 2, printedAt: 5 })]),
-    ).toBe(1);
+  it('is the list length, since a printed receipt leaves the list', () => {
+    expect(pendingCount([receipt({ downloadId: 1 }), receipt({ downloadId: 2 })])).toBe(2);
     expect(pendingCount([])).toBe(0);
   });
 });

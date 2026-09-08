@@ -439,6 +439,22 @@ l'icône » à quelqu'un qui vient de le faire est pire que se taire. Il pointe 
 le chemin qui, lui, est prouvé : « Téléchargez le reçu : il sera détecté
 automatiquement. »
 
+### Simplification demandée le 2026-09-08
+
+La liste du popup gardait les reçus déjà imprimés, marqués « déjà imprimé »
+avec un bouton « Retirer ». C'était de l'historique, pas de l'action.
+
+Un reçu imprimé **quitte la liste** désormais. Le titre passe de « Reçus
+téléchargés » à « À imprimer », qui dit ce que la section contient. Retiré avec :
+`printedAt`, `updateDetected`, l'état `printed` des lignes, la variante de
+bouton, et la règle CSS associée. `MAX_DETECTED` descend de 10 à 5 — quelques
+reçus en attente, jamais un journal.
+
+Ça ne coûte rien en sûreté : la protection contre le double tirage n'a jamais
+vécu là. C'est le host qui tient sa propre fenêtre de déduplication
+(`printing/dedupe.ts`), et un test vérifie qu'une impression **échouée** laisse
+l'entrée en place — seul un succès la retire.
+
 ### AC18 tient toujours
 
 Les deux chemins du §59 restent indépendants. Le chemin B — détection des

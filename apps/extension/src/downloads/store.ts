@@ -1,8 +1,13 @@
 import type { ParseWarning } from '@brb/shared';
 
 /**
- * Receipts spotted in the downloads, kept where the service worker can find
- * them again.
+ * Receipts spotted in the downloads and still waiting to be printed.
+ *
+ * A LIST OF PENDING WORK, NOT A HISTORY. A printed receipt is removed rather
+ * than kept with a marker: keeping it turns the popup into a log the user then
+ * has to tidy, and there is nothing to do with the entry any more. Protection
+ * against printing the same receipt twice does not depend on it either - the
+ * host keeps its own window for that (printing/dedupe.ts).
  *
  * IN STORAGE, NOT IN A VARIABLE. An MV3 service worker is evicted after about
  * 30 seconds idle: the download event wakes it, and by the time the user opens
@@ -21,8 +26,6 @@ export interface DetectedReceipt {
   confidence: number;
   warningCount: number;
   detectedAt: number;
-  /** Set once printed, so the popup can say so instead of offering again. */
-  printedAt?: number;
   reason: 'booksy' | 'filename';
 }
 
@@ -39,8 +42,8 @@ export const CHECKED_KEY = 'checkedDownloadIds';
 /** Enough to cover a browsing session's downloads without growing unbounded. */
 export const MAX_CHECKED = 100;
 
-/** Kept short: this is a "just now" list, not a history. */
-export const MAX_DETECTED = 10;
+/** Kept short: a handful of receipts awaiting a decision, never a log. */
+export const MAX_DETECTED = 5;
 
 /** The slice of chrome.storage this needs, so tests need no browser. */
 export interface SessionStorage {
@@ -74,18 +77,6 @@ export async function rememberDetected(
   return next;
 }
 
-export async function updateDetected(
-  storage: SessionStorage,
-  downloadId: number,
-  patch: Partial<DetectedReceipt>,
-): Promise<DetectedReceipt[]> {
-  const next = (await readDetected(storage)).map((entry) =>
-    entry.downloadId === downloadId ? { ...entry, ...patch } : entry,
-  );
-  await storage.set({ [STORAGE_KEY]: next });
-  return next;
-}
-
 export async function forgetDetected(
   storage: SessionStorage,
   downloadId: number,
@@ -115,9 +106,14 @@ export async function markChecked(
   return next;
 }
 
-/** How many entries still await a decision - what the badge counts. */
+/**
+ * What the badge shows.
+ *
+ * Simply the length, now that a printed receipt leaves the list: there is no
+ * such thing as an entry that no longer awaits a decision.
+ */
 export function pendingCount(receipts: readonly DetectedReceipt[]): number {
-  return receipts.filter((receipt) => receipt.printedAt === undefined).length;
+  return receipts.length;
 }
 
 export function warningCountOf(warnings: readonly ParseWarning[]): number {

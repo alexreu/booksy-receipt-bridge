@@ -87,7 +87,6 @@ export function applyDetectedRows(document: Document, rows: readonly DetectedRow
   list.replaceChildren(
     ...rows.map((row) => {
       const li = document.createElement('li');
-      li.dataset['printed'] = String(row.printed);
 
       const label = document.createElement('div');
       label.className = 'label';
@@ -101,15 +100,10 @@ export function applyDetectedRows(document: Document, rows: readonly DetectedRow
 
       const actions = document.createElement('div');
       actions.className = 'row-actions';
-
-      if (!row.printed) {
-        actions.append(
-          button(document, 'Imprimer', 'print-detected', row.downloadId),
-          button(document, 'Ignorer', 'dismiss-detected', row.downloadId),
-        );
-      } else {
-        actions.append(button(document, 'Retirer', 'dismiss-detected', row.downloadId));
-      }
+      actions.append(
+        button(document, 'Imprimer', 'print-detected', row.downloadId),
+        button(document, 'Ignorer', 'dismiss-detected', row.downloadId),
+      );
       li.append(actions);
       return li;
     }),

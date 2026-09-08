@@ -30,14 +30,7 @@ describe('detectedRows', () => {
     const [row] = detectedRows([receipt()]);
     expect(row?.label).toBe('Ticket n° 1167 · 300,00 €');
     expect(row?.detail).toBe('11/08/2026, 16:08:54');
-    expect(row?.printed).toBe(false);
     expect(row?.caution).toBeUndefined();
-  });
-
-  it('says so once printed, instead of offering again', () => {
-    const [row] = detectedRows([receipt({ printedAt: 2_000 })]);
-    expect(row?.printed).toBe(true);
-    expect(row?.detail).toBe('déjà imprimé');
   });
 
   it('warns when the reading was uncertain', () => {
@@ -59,13 +52,6 @@ describe('detectedRows', () => {
 
   it('says nothing extra for a clean Booksy receipt', () => {
     expect(detectedRows([receipt()])[0]?.caution).toBeUndefined();
-  });
-
-  it('drops the cautions once printed - they are about deciding, not history', () => {
-    const [row] = detectedRows([
-      receipt({ printedAt: 2_000, confidence: 0.4, warningCount: 2, reason: 'filename' }),
-    ]);
-    expect(row?.caution).toBeUndefined();
   });
 
   it('falls back when the receipt carries no date', () => {

@@ -10,7 +10,6 @@ export interface DetectedRow {
   downloadId: number;
   label: string;
   detail: string;
-  printed: boolean;
   /** Shown when the parse was uncertain or noisy, so the user can look first. */
   caution?: string;
 }
@@ -32,19 +31,12 @@ export function detectedRows(receipts: readonly DetectedReceipt[]): DetectedRow[
   return receipts.map((receipt) => ({
     downloadId: receipt.downloadId,
     label: `Ticket n° ${receipt.ticketNumber} · ${formatMoney(receipt.totalTTC)}`,
-    detail: detailOf(receipt),
-    printed: receipt.printedAt !== undefined,
+    detail: receipt.issuedAt ?? 'téléchargé à l’instant',
     ...caution(receipt),
   }));
 }
 
-function detailOf(receipt: DetectedReceipt): string {
-  if (receipt.printedAt !== undefined) return 'déjà imprimé';
-  return receipt.issuedAt ?? 'téléchargé à l’instant';
-}
-
 function caution(receipt: DetectedReceipt): { caution?: string } {
-  if (receipt.printedAt !== undefined) return {};
   const notes: string[] = [];
   if (receipt.confidence < CAUTION_THRESHOLD) {
     notes.push(`lecture incertaine (${Math.round(receipt.confidence * 100)} %)`);

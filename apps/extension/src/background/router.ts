@@ -6,12 +6,7 @@ import type {
   PrintTestData,
 } from '@brb/shared';
 import type { DownloadCandidate } from '../downloads/filter.ts';
-import {
-  forgetDetected,
-  readDetected,
-  updateDetected,
-  type SessionStorage,
-} from '../downloads/store.ts';
+import { forgetDetected, readDetected, type SessionStorage } from '../downloads/store.ts';
 import { reconcileDownloads } from '../downloads/watcher.ts';
 import { nextMessageId, type NativeHostClient } from '../messaging/client.ts';
 import {
@@ -192,7 +187,7 @@ async function dispatch(
 
     case 'DISMISS_DETECTED': {
       const receipts = await forgetDetected(deps.storage, request.downloadId);
-      deps.setBadge?.(pending(receipts));
+      deps.setBadge?.(receipts.length);
       return { kind: 'DETECTED', receipts };
     }
 
@@ -252,17 +247,14 @@ async function dispatch(
         return { kind: 'ERROR', message: response.error?.message ?? 'Impression échouée.' };
       }
 
-      const receipts = await updateDetected(deps.storage, request.downloadId, {
-        printedAt: Date.now(),
-      });
-      deps.setBadge?.(pending(receipts));
+      // Removed rather than marked: there is nothing left to do with it, and
+      // the host's own window is what stops a second print of the same
+      // receipt. Only on success - a failed print must stay on the list.
+      const receipts = await forgetDetected(deps.storage, request.downloadId);
+      deps.setBadge?.(receipts.length);
       return { kind: 'PRINTED_RECEIPT', data: response.data };
     }
   }
-}
-
-function pending(receipts: readonly { printedAt?: number }[]): number {
-  return receipts.filter((receipt) => receipt.printedAt === undefined).length;
 }
 
 /** Chunked, because spreading a large array into String.fromCharCode overflows. */

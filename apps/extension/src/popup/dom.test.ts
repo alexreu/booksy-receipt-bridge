@@ -237,11 +237,17 @@ describe('applyDetectedRows', () => {
     expect(document.getElementById('detected-list')?.innerHTML).not.toContain('/Downloads/');
   });
 
-  it('offers only a way to remove an entry once printed', () => {
-    applyDetectedRows(document, detectedRows([detected({ printedAt: 2_000 })]));
-    const buttons = [...document.querySelectorAll<HTMLButtonElement>('#detected-list button')];
-    expect(buttons.map((b) => b.dataset['action'])).toEqual(['dismiss-detected']);
-    expect(document.querySelector('#detected-list li')?.getAttribute('data-printed')).toBe('true');
+  it('offers the same two actions on every row', () => {
+    // No printed state to render: a printed receipt leaves the list, so the
+    // popup shows pending work rather than a log to tidy.
+    applyDetectedRows(document, detectedRows([detected(), detected({ downloadId: 43 })]));
+    const rows = [...document.querySelectorAll('#detected-list li')];
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(
+        [...row.querySelectorAll<HTMLButtonElement>('button')].map((b) => b.dataset['action']),
+      ).toEqual(['print-detected', 'dismiss-detected']);
+    }
   });
 
   it('shows the caution alongside the detail', () => {

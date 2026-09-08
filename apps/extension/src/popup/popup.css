@@ -160,10 +160,6 @@ h2 {
   font-size: 12px;
 }
 
-.detected li[data-printed='true'] .label {
-  color: var(--muted);
-}
-
 .printer {
   margin: 0 0 12px;
 }

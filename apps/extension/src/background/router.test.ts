@@ -387,7 +387,7 @@ describe('handleExtensionMessage - detected receipts', () => {
     });
   });
 
-  it('marks it printed so the popup stops offering it', async () => {
+  it('removes it from the list once printed, rather than logging it', async () => {
     const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
     const client = new MockNativeHostClient({
       replies: { PRINT_RECEIPT: { ticketNumber: '1167', confidence: 1, warnings: [] } },
@@ -400,8 +400,9 @@ describe('handleExtensionMessage - detected receipts', () => {
       deps({ storage, client, setBadge }),
     );
 
-    const stored = storage.snapshot()[STORAGE_KEY] as DetectedReceipt[];
-    expect(stored[0]?.printedAt).toBeTypeOf('number');
+    // Nothing left to do with the entry, and the host's own window is what
+    // stops a second print of the same receipt.
+    expect(storage.snapshot()[STORAGE_KEY]).toEqual([]);
     expect(setBadge).toHaveBeenCalledWith(0);
   });
 
@@ -416,7 +417,7 @@ describe('handleExtensionMessage - detected receipts', () => {
     expect(client.sent).toEqual([]);
   });
 
-  it('does not mark it printed when the print failed', async () => {
+  it('keeps it on the list when the print failed', async () => {
     const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
     const client = new MockNativeHostClient({
       failWith: { code: 'PRINTER_OFFLINE', message: 'imprimante hors ligne' },
@@ -429,7 +430,7 @@ describe('handleExtensionMessage - detected receipts', () => {
     );
     expect(response).toEqual({ kind: 'ERROR', message: 'imprimante hors ligne' });
     const stored = storage.snapshot()[STORAGE_KEY] as DetectedReceipt[] | undefined;
-    expect(stored?.[0]?.printedAt).toBeUndefined();
+    expect(stored?.map((entry) => entry.downloadId)).toEqual([42]);
   });
 
   it('dismisses an entry and updates the badge', async () => {
