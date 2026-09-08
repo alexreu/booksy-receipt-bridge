@@ -21,6 +21,7 @@ export const CLI_COMMANDS = [
   'ticket',
   'html',
   'escpos',
+  'update',
   '-h',
   '--help',
   '--version',

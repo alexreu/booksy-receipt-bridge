@@ -42,3 +42,10 @@ describe('selectMode', () => {
     expect(selectMode(['print'])).toBe('usage');
   });
 });
+
+describe('selectMode - the update command', () => {
+  it('runs the CLI for it, like every other command', () => {
+    expect(selectMode(['update'])).toBe('cli');
+    expect(selectMode(['update', '--download'])).toBe('cli');
+  });
+});

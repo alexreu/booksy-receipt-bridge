@@ -26,6 +26,7 @@ Sans argument, le host parle le protocole Native Messaging sur stdin/stdout.
   config                   Affiche la configuration et son emplacement
   config set <clé> <val>   printer.name, printer.columns, printing.autoPrint, ...
   paths                    Affiche les dossiers de données et de logs
+  update [--download]      Cherche une version plus récente sur GitHub
   parse <pdf>              Lit un reçu Booksy et affiche le Receipt en JSON
   ticket <pdf>             Affiche le ticket 80 mm en texte
   html <pdf> [--out f]     Écrit l'aperçu HTML
@@ -54,6 +55,16 @@ export async function runCli(argv: readonly string[]): Promise<number> {
         type: command === 'ping' ? 'PING' : 'GET_STATUS',
       });
       out(`${JSON.stringify(response, null, 2)}\n`);
+      return response.success ? 0 : 1;
+    }
+
+    case 'update': {
+      const host = createHost({ log: silentLogger() });
+      const response = await host.handle({
+        id: 'cli',
+        type: rest.includes('--download') ? 'DOWNLOAD_UPDATE' : 'CHECK_UPDATE',
+      });
+      out(`${JSON.stringify(response.data ?? response, null, 2)}\n`);
       return response.success ? 0 : 1;
     }
 
