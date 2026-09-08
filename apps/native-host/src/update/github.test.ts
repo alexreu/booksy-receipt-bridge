@@ -2,7 +2,14 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { checkForUpdate, downloadUpdate, type UpdateDeps } from './github.ts';
+import {
+  checkForUpdate,
+  describeNetworkError,
+  downloadUpdate,
+  shortCause,
+  timedOut,
+  type UpdateDeps,
+} from './github.ts';
 
 const REPO = 'alexreu/booksy-receipt-bridge';
 const ASSET_URL = `https://api.github.com/repos/${REPO}/releases/assets/1`;
@@ -221,4 +228,52 @@ describe('downloadUpdate', () => {
     if (!result.ok) expect(result.error).toContain('privé');
   });
 
+});
+
+describe('network failures are diagnosable', () => {
+  it('unwraps the cause chain a failed fetch hides its reason in', () => {
+    // `fetch failed` on its own says nothing usable; the code lives in cause.
+    const inner = Object.assign(new Error('connect ETIMEDOUT'), {
+      code: 'UND_ERR_CONNECT_TIMEOUT',
+    });
+    const outer = Object.assign(new Error('fetch failed'), { cause: inner });
+
+    expect(describeNetworkError(outer)).toContain('UND_ERR_CONNECT_TIMEOUT');
+    expect(describeNetworkError(outer)).toContain('fetch failed');
+    expect(shortCause(outer)).toBe('UND_ERR_CONNECT_TIMEOUT');
+  });
+
+  it('recognises a timeout and says so plainly', () => {
+    const timeout = Object.assign(new Error('fetch failed'), {
+      cause: Object.assign(new Error('x'), { code: 'UND_ERR_CONNECT_TIMEOUT' }),
+    });
+    expect(timedOut(timeout)).toBe(true);
+    expect(timedOut(new Error('ENOTFOUND'))).toBe(false);
+  });
+
+  it('tells the user to retry rather than showing a library code', async () => {
+    const timeout = Object.assign(new Error('fetch failed'), {
+      cause: Object.assign(new Error('x'), { code: 'UND_ERR_CONNECT_TIMEOUT' }),
+    });
+    const check = await checkForUpdate(deps({ fetch: () => Promise.reject(timeout) }));
+    expect(check.error).toContain('Réessayez');
+    expect(check.error).not.toContain('UND_ERR');
+  });
+
+  it('keeps the code visible for a failure that is not a timeout', async () => {
+    const refused = Object.assign(new Error('fetch failed'), {
+      cause: Object.assign(new Error('x'), { code: 'ENOTFOUND' }),
+    });
+    const check = await checkForUpdate(deps({ fetch: () => Promise.reject(refused) }));
+    expect(check.error).toContain('ENOTFOUND');
+  });
+
+  it('gives up on its own deadline rather than the library default', async () => {
+    const fetch = vi.fn<UpdateDeps['fetch']>().mockImplementation((_url, init) => {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      return Promise.resolve(jsonResponse(release()));
+    });
+    await checkForUpdate(deps({ fetch }));
+    expect(fetch).toHaveBeenCalled();
+  });
 });

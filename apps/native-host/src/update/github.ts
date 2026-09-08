@@ -37,6 +37,16 @@ export interface UpdateDeps {
 /** Asset the installer is shipped as. */
 const ASSET_PATTERN = /\.(?:zip|exe)$/i;
 
+/**
+ * How long to wait before giving up.
+ *
+ * Explicit, because undici's own connect timeout is ten seconds and the popup
+ * sits on "Vérification…" for all of it with nothing to show. Observed here on
+ * an intermittent connection: the request neither succeeded nor said anything
+ * for eleven seconds. Better to fail quickly and let the user press again.
+ */
+export const REQUEST_TIMEOUT_MS = 8_000;
+
 const USER_AGENT = 'booksy-receipt-bridge';
 
 interface ReleaseAsset {
@@ -80,6 +90,40 @@ function describeFailure(status: number, repo: string, hasToken: boolean): strin
   return `GitHub a répondu ${status}.`;
 }
 
+/** Unwrap the cause chain a failed fetch hides its reason in. */
+export function describeNetworkError(error: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current instanceof Error; depth++) {
+    const code = (current as NodeJS.ErrnoException).code;
+    parts.push(code === undefined ? current.message : `${current.message} [${code}]`);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return parts.length === 0 ? String(error) : parts.join(' <- ');
+}
+
+/** Did the request give up on its own deadline? */
+export function timedOut(error: unknown): boolean {
+  const cause = shortCause(error);
+  return (
+    cause === 'UND_ERR_CONNECT_TIMEOUT' ||
+    cause === 'UND_ERR_HEADERS_TIMEOUT' ||
+    cause === 'TimeoutError' ||
+    (error instanceof Error && error.name === 'TimeoutError')
+  );
+}
+
+/** The shortest thing worth putting in front of a user. */
+export function shortCause(error: unknown): string {
+  let current: unknown = error;
+  let code: string | undefined;
+  for (let depth = 0; depth < 5 && current instanceof Error; depth++) {
+    code = (current as NodeJS.ErrnoException).code ?? code;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return code ?? (error instanceof Error ? error.message : String(error));
+}
+
 export async function checkForUpdate(deps: UpdateDeps): Promise<UpdateCheck> {
   const hasToken = deps.token !== undefined && deps.token !== '';
   const url = `https://api.github.com/repos/${deps.repo}/releases/latest`;
@@ -88,11 +132,20 @@ export async function checkForUpdate(deps: UpdateDeps): Promise<UpdateCheck> {
   try {
     response = await deps.fetch(url, {
       headers: headers(deps.token, 'application/vnd.github+json'),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    deps.log?.(`Vérification de mise à jour impossible : ${message}`);
-    return { current: deps.currentVersion, available: false, error: 'Réseau indisponible.' };
+    // `fetch failed` on its own says nothing usable. The cause chain is where
+    // the reason lives - ENOTFOUND, ECONNREFUSED, a certificate - and it is
+    // the only thing that makes a network failure diagnosable from a log file.
+    deps.log?.(`Vérification de mise à jour impossible : ${describeNetworkError(error)}`);
+    return {
+      current: deps.currentVersion,
+      available: false,
+      error: timedOut(error)
+        ? 'GitHub n’a pas répondu à temps. Réessayez.'
+        : `Réseau indisponible (${shortCause(error)}).`,
+    };
   }
 
   if (!response.ok) {
@@ -158,6 +211,8 @@ export async function downloadUpdate(deps: UpdateDeps): Promise<UpdateDownload> 
   // for a public one too.
   const download = await deps.fetch(asset.url, {
     headers: headers(deps.token, 'application/octet-stream'),
+    // Generous: an installer is tens of megabytes, unlike a version check.
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS * 15),
   });
   if (!download.ok) {
     return { ok: false, error: describeFailure(download.status, deps.repo, deps.token !== undefined) };
