@@ -40,6 +40,10 @@ export interface ConfigPatch {
     printableWidth?: number;
     columns?: number;
   };
+  update?: {
+    repo?: string;
+    token?: string;
+  };
   printing?: {
     autoPrint?: boolean;
     showPreview?: boolean;
@@ -76,7 +80,13 @@ export type NativeMessage =
         trigger?: 'user' | 'auto';
       };
     }
-  | { id: string; type: 'PRINT_TEST' };
+  | { id: string; type: 'PRINT_TEST' }
+  /**
+   * Look for a newer release. User-initiated only - there is no timer and no
+   * check at startup, so the host never contacts anything unprompted.
+   */
+  | { id: string; type: 'CHECK_UPDATE' }
+  | { id: string; type: 'DOWNLOAD_UPDATE' };
 
 export type NativeMessageType = NativeMessage['type'];
 
@@ -90,6 +100,8 @@ export const NATIVE_MESSAGE_TYPES = [
   'RENDER_RECEIPT',
   'PRINT_RECEIPT',
   'PRINT_TEST',
+  'CHECK_UPDATE',
+  'DOWNLOAD_UPDATE',
 ] as const satisfies readonly NativeMessageType[];
 
 export interface NativeResponse<T = unknown> {
@@ -120,6 +132,13 @@ export interface BridgeConfig {
     paperWidth: number;
     printableWidth: number;
     columns: number;
+  };
+  /** Where updates are looked for (plan section 50). */
+  update: {
+    /** owner/name on GitHub. */
+    repo: string;
+    /** Read-only token. Required for a private repository, unused otherwise. */
+    token: string;
   };
   printing: {
     autoPrint: boolean;
@@ -167,6 +186,25 @@ export interface PrintReceiptData extends PrintTestData {
    */
   duplicate?: boolean;
 }
+
+/** `CHECK_UPDATE` reply. */
+export interface UpdateCheck {
+  current: string;
+  latest?: string;
+  available: boolean;
+  releaseUrl?: string;
+  assetName?: string;
+  assetBytes?: number;
+  prerelease?: boolean;
+  notes?: string;
+  /** Why the check could not be made. Absent on success. */
+  error?: string;
+}
+
+/** `DOWNLOAD_UPDATE` reply. */
+export type UpdateDownload =
+  | { ok: true; path: string; bytes: number; version: string }
+  | { ok: false; error: string };
 
 /** `PING` reply (plan section 15). */
 export interface PingData {

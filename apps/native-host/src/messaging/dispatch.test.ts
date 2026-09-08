@@ -28,6 +28,10 @@ function context(overrides: Partial<HostContext> = {}): HostContext {
     configFile: join(dir, 'config.json'),
     historyPath: join(dir, 'print-history.json'),
     clock: fixedClock(1_700_000_000_000),
+    updateDir: join(dir, 'updates'),
+    // No test reaches the network: an unexpected call is a failure, not a
+    // silent HTTP request.
+    fetch: () => Promise.reject(new Error('fetch inattendu dans un test')),
     ...overrides,
   };
 }

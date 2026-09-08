@@ -18,6 +18,15 @@ describe('parseExtensionRequest', () => {
     expect(parseExtensionRequest({ kind: 'PRINT_TEST' })).toEqual({ kind: 'PRINT_TEST' });
   });
 
+  it('refuses an update check from a page context', () => {
+    // It is a writing intent, so the router refuses it to a content script;
+    // parsing it is fine, acting on it from a page is not.
+    expect(parseExtensionRequest({ kind: 'CHECK_UPDATE' })).toEqual({ kind: 'CHECK_UPDATE' });
+    expect(parseExtensionRequest({ kind: 'DOWNLOAD_UPDATE' })).toEqual({
+      kind: 'DOWNLOAD_UPDATE',
+    });
+  });
+
   it('accepts PRINT_ACTIVE_TAB and ignores any url a caller attaches', () => {
     // The intent carries no address on purpose: the worker resolves the active
     // tab itself, so there is nothing from a caller to validate.
@@ -71,6 +80,10 @@ describe('parseExtensionRequest', () => {
       'PRINT_DETECTED',
       'DISMISS_DETECTED',
       'PRINT_ACTIVE_TAB',
+      // A check changes nothing locally, but it reaches the network, and AC19
+      // means that must never happen without the user asking.
+      'CHECK_UPDATE',
+      'DOWNLOAD_UPDATE',
     ]);
   });
 

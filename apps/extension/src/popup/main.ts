@@ -8,8 +8,9 @@
 import type { ExtensionRequest, ExtensionResponse } from '../messaging/protocol.ts';
 import type { HostState } from '../messaging/state.ts';
 import { detectedRows } from './detected.ts';
-import { applyActiveTabPdf, applyDetectedRows, applyPopupView } from './dom.ts';
+import { applyActiveTabPdf, applyDetectedRows, applyPopupView, applyUpdateView } from './dom.ts';
 import { popupView } from './render.ts';
+import { downloadedView, updateView } from './update.ts';
 
 async function ask(request: ExtensionRequest): Promise<ExtensionResponse> {
   const response = (await chrome.runtime.sendMessage(request)) as ExtensionResponse | undefined;
@@ -151,6 +152,42 @@ async function printTest(): Promise<void> {
   applyPopupView(document, popupView(await hostState()));
 }
 
+/**
+ * Only ever on a click.
+ *
+ * There is no check at startup and no timer: AC19 means the extension must not
+ * reach the network unless the user asks it to.
+ */
+async function checkUpdate(): Promise<void> {
+  setFeedback('');
+  applyUpdateView(document, { summary: 'Vérification…', canDownload: false });
+  const response = await ask({ kind: 'CHECK_UPDATE' });
+  if (response.kind === 'UPDATE') {
+    applyUpdateView(document, updateView(response.check));
+    return;
+  }
+  applyUpdateView(document, {
+    summary: 'Vérification impossible.',
+    canDownload: false,
+    ...(response.kind === 'ERROR' ? { detail: response.message } : {}),
+  });
+}
+
+async function downloadUpdate(): Promise<void> {
+  const button = document.getElementById('download-update') as HTMLButtonElement | null;
+  if (button !== null) button.disabled = true;
+  setFeedback('Téléchargement…');
+
+  const response = await ask({ kind: 'DOWNLOAD_UPDATE' });
+  setFeedback(
+    response.kind === 'UPDATE_DOWNLOADED'
+      ? downloadedView(response.download)
+      : response.kind === 'ERROR'
+        ? response.message
+        : 'Réponse inattendue.',
+  );
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('retry')?.addEventListener('click', () => {
     void refresh();
@@ -160,6 +197,12 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('print-tab')?.addEventListener('click', () => {
     void printActiveTab();
+  });
+  document.getElementById('check-update')?.addEventListener('click', () => {
+    void checkUpdate();
+  });
+  document.getElementById('download-update')?.addEventListener('click', () => {
+    void downloadUpdate();
   });
   document.getElementById('settings')?.addEventListener('click', () => {
     chrome.runtime.openOptionsPage();

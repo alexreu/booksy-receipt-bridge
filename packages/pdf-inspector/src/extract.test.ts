@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { groupIntoLines, inspectPdf, linesToText } from './extract.ts';
+import {
+  PDFJS_ASSETS_ENV,
+  groupIntoLines,
+  inspectPdf,
+  linesToText,
+  pdfjsAssetRoot,
+} from './extract.ts';
 import { makeSyntheticPdf, syntheticReceiptPdf } from './testing/make-pdf.ts';
 import type { PdfTextItem } from './types.ts';
 
@@ -171,3 +177,19 @@ function must<T>(value: T | undefined): T {
   if (value === undefined) throw new Error('fixture is missing an expected run');
   return value;
 }
+
+describe('pdfjsAssetRoot', () => {
+  it('honours an explicit override', () => {
+    expect(pdfjsAssetRoot({ [PDFJS_ASSETS_ENV]: '/opt/brb/pdfjs' })).toBe('/opt/brb/pdfjs');
+  });
+
+  it('ignores an empty override', () => {
+    expect(pdfjsAssetRoot({ [PDFJS_ASSETS_ENV]: '' })).not.toBe('');
+  });
+
+  it('resolves the installed package in development', () => {
+    // In a bundled single-file host there is no node_modules to resolve
+    // against, which is why the executable-relative lookup exists at all.
+    expect(pdfjsAssetRoot({})).toContain('pdfjs-dist');
+  });
+});

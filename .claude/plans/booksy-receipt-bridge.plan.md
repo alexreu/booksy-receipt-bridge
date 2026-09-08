@@ -182,7 +182,7 @@ Ordre final :
 | 6b | `WindowsPrinterAdapter` sur matériel | AC5, AC6, AC14, AC15 — bloqué |
 | 7 | `chrome.downloads` + déduplication | **fait** — AC16, AC17 |
 | 8 | Impression du PDF de l'onglet actif | **fait** — AC18 (fallback intact) |
-| 9 | Installeur Windows (`Setup.exe`) | AC1, AC2, AC20 |
+| 9 | Exécutable autonome + installeur + mises à jour | **fait** — AC20 démontré |
 | 10 | Auto-print sous seuil de confiance | — |
 
 **Dépendance bloquante** : la Phase 2 ne peut pas démarrer sans un vrai PDF Booksy dans
@@ -367,6 +367,76 @@ Quatre choses découvertes en implémentant, à retenir pour les phases suivante
 | `PARSE_RECEIPT` prend un `ReceiptSource` discriminé (`path` \| `bytes`) | un seul type de message couvre le chemin téléchargement et le chemin bouton (§2.3) |
 | Pas de `@crxjs/vite-plugin`, pas de React | 4 points d'entrée quasi statiques ; §6 les donnait comme conditionnels |
 | `debug/` porte aussi les sorties ESC/POS (`.bin`, `.txt`, `.svg`) | même règle PII que le JSON de l'inspecteur |
+
+---
+
+## 15. Phase 9 — exécutable autonome, installeur, mises à jour, livrée le 2026-09-08
+
+645 tests, 43 fichiers, quatre portes à exit 0.
+
+### AC20 est démontré, pas seulement conçu
+
+`pnpm build:host` produit un binaire unique de 113 Mo qui embarque son runtime.
+Testé pour de vrai sur macOS : `--version`, `ping`, et surtout
+`ticket recu-1167.anon.pdf` qui sort le ticket complet avec `confidence 1`.
+Aucun Node installé n'est requis.
+
+**Trois pannes réelles trouvées en le construisant**, aucune détectable par les
+tests unitaires :
+
+1. **macOS tue un binaire modifié.** L'injection SEA invalide sa signature et le
+   système l'arrête par SIGKILL — exit 137, aucune sortie. Une re-signature
+   ad-hoc après `postject` règle le cas.
+2. **`createRequire(import.meta.url)` casse en sortie CommonJS.** `import.meta`
+   n'y existe pas, donc `createRequire(undefined)` levait **à l'initialisation
+   du module**, tuant le host avant tout traitement. Corrigé sur deux fronts :
+   l'appel est devenu paresseux (jamais atteint dans un binaire), et le build
+   définit `import.meta.url` sur `__filename` — que `createRequire` accepte.
+3. **pdf.js exige des globales DOM et un module de worker.** Bundlé, il levait
+   `DOMMatrix is not defined`, puis cherchait `pdf.worker.mjs` à côté de
+   l'exécutable. Des stubs **inertes** couvrent les globales — on ne fait que
+   lire du texte, jamais de rendu, et ils lèvent si quelque chose tentait de
+   rasteriser. Le worker et les polices sont livrés à côté du binaire, et
+   `workerSrc` pointe dessus explicitement au lieu de laisser pdf.js deviner.
+
+Corollaire architectural : `pdfjsAssetRoot()` cherche dans trois endroits, dans
+l'ordre — variable d'environnement, à côté de l'exécutable, puis résolution npm.
+Sans le deuxième, un host installé ne peut lire aucun PDF.
+
+### Installeur : PowerShell, sans élévation
+
+`Install.ps1` plutôt qu'un `Setup.exe` compilé : ça fonctionne aujourd'hui, sans
+chaîne de build Windows, et la logique est relisible en diff. Tout va dans le
+profil utilisateur — exécutable sous `%LOCALAPPDATA%`, registre sous `HKCU` —
+ce qui est la préférence explicite du §12 et évite une élévation qu'un poste
+contraint ne donnera pas.
+
+Chaque navigateur Chromium reçoit son entrée ; un navigateur absent est ignoré,
+pas signalé comme une erreur (§53). La configuration existante est **conservée**,
+et la désinstallation garde config et journaux sauf `-Purge` : ce sont les
+données de l'utilisateur.
+
+### Mises à jour : le service fait le réseau, jamais l'extension
+
+Le §50 ne prévoyait pas de mécanisme de mise à jour ; il est ajouté à la demande
+du 2026-09-08.
+
+| Décision | Raison |
+|---|---|
+| **Jamais automatique** | Le §AC19 dit qu'aucune donnée ne part vers un serveur distant. Une vérification de version n'envoie rien d'un reçu, mais un service qui téléphone sans qu'on le lui demande n'est pas ce que ce critère a en tête. Aucun timer, aucune vérification au démarrage. |
+| **Le host fait la requête** | L'extension aurait besoin d'une permission d'hôte pour github.com et mettrait le jeton dans le navigateur. Là, le jeton reste dans un fichier lisible par le seul compte de l'utilisateur. |
+| **Jeton optionnel** | Un dépôt **privé** n'expose pas ses assets publiquement. Le même chemin de code sert les deux cas : jeton posé → dépôt privé ; pas de jeton → releases publiques. |
+| **Un tag est la procédure de release** | La CI Windows construit l'archive, **vérifie que le binaire lit un PDF**, et l'attache à la release. C'est elle que le bouton « Vérifier » interroge. |
+| Une version illisible n'est jamais « plus récente » | Proposer une mise à jour sur la foi d'un tag que personne ne sait analyser est pire que n'en proposer aucune. |
+| « Vérification impossible » ≠ « à jour » | Confondre les deux laisserait un jeton mal configuré passer pour une bonne nouvelle. |
+
+### La contrainte que Chrome impose
+
+Chrome **ne met pas à jour** une extension hors Web Store. Le mécanisme livré
+télécharge donc l'archive et dit où elle est ; `Install.ps1` remplace le service,
+et l'extension se recharge depuis le dossier `extension/` de l'archive. Une mise
+à jour reste une action de l'utilisateur — ce n'est pas un choix de conception,
+c'est la limite du navigateur.
 
 ### Prochaine action bloquante
 

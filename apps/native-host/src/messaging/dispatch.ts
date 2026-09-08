@@ -20,6 +20,7 @@ import { loadConfig, saveConfig, type ConfigState } from '../config/config.ts';
 import type { Logger } from '../logging/logger.ts';
 import { printReceipt, printTest } from '../printing/print.ts';
 import { resolveSource } from '../printing/source.ts';
+import { checkForUpdate, downloadUpdate, type FetchLike } from '../update/github.ts';
 
 /** Message types this host implements. Everything else is refused explicitly. */
 export const SUPPORTED: NativeMessageType[] = [
@@ -32,6 +33,8 @@ export const SUPPORTED: NativeMessageType[] = [
   'RENDER_RECEIPT',
   'PRINT_RECEIPT',
   'PRINT_TEST',
+  'CHECK_UPDATE',
+  'DOWNLOAD_UPDATE',
 ];
 
 export interface HostContext {
@@ -47,6 +50,10 @@ export interface HostContext {
   historyPath: string;
   /** The one place time enters the host. */
   clock: Clock;
+  /** Where a downloaded update is written. */
+  updateDir: string;
+  /** Injected so no test ever reaches the network. */
+  fetch: FetchLike;
 }
 
 /**
@@ -171,6 +178,22 @@ export async function dispatch(raw: unknown, context: HostContext): Promise<Nati
           : failure(message.id, outcome.code, outcome.message);
       }
 
+      case 'CHECK_UPDATE': {
+        return {
+          id: message.id,
+          success: true,
+          data: await checkForUpdate(updateDeps(context)),
+        };
+      }
+
+      case 'DOWNLOAD_UPDATE': {
+        return {
+          id: message.id,
+          success: true,
+          data: await downloadUpdate(updateDeps(context)),
+        };
+      }
+
       case 'PRINT_RECEIPT': {
         const outcome = await printReceipt(message.payload, printDeps(context));
         return outcome.ok
@@ -192,6 +215,24 @@ function printDeps(context: HostContext): Parameters<typeof printTest>[0] {
     log: context.log,
     historyPath: context.historyPath,
     now: context.clock,
+  };
+}
+
+/**
+ * The update lookup's inputs.
+ *
+ * `fetch` is injected through the context so a test never reaches the network,
+ * and the token is read from the config rather than embedded anywhere.
+ */
+function updateDeps(context: HostContext): Parameters<typeof checkForUpdate>[0] {
+  const { update } = context.config.config;
+  return {
+    repo: update.repo,
+    currentVersion: context.version,
+    ...(update.token === '' ? {} : { token: update.token }),
+    downloadDir: context.updateDir,
+    fetch: context.fetch,
+    log: (message) => context.log.info(message),
   };
 }
 

@@ -19,6 +19,12 @@ export const BridgeConfigSchema = z.object({
     printableWidth: z.number().positive().default(72),
     columns: z.number().int().positive().default(42),
   }),
+  update: z.object({
+    /** Set at build time to the project's own repository. */
+    repo: z.string().default('alexreu/booksy-receipt-bridge'),
+    /** Empty unless the repository is private (see update/github.ts). */
+    token: z.string().default(''),
+  }),
   printing: z.object({
     autoPrint: z.boolean().default(false),
     showPreview: z.boolean().default(true),
@@ -31,6 +37,7 @@ export type BridgeConfig = z.infer<typeof BridgeConfigSchema>;
 
 export const DEFAULT_CONFIG: BridgeConfig = BridgeConfigSchema.parse({
   printer: {},
+  update: {},
   printing: {},
 });
 
@@ -93,6 +100,7 @@ export function saveConfig(path: string, patch: ConfigPatch): BridgeConfig {
   const current = loadConfig(path).config;
   const merged = BridgeConfigSchema.parse({
     printer: { ...current.printer, ...patch.printer },
+    update: { ...current.update, ...patch.update },
     printing: { ...current.printing, ...patch.printing },
   });
 
@@ -105,10 +113,13 @@ export function saveConfig(path: string, patch: ConfigPatch): BridgeConfig {
 
 /** Tolerate a file that omits a whole section. */
 function withDefaults(value: unknown): unknown {
-  if (typeof value !== 'object' || value === null) return { printer: {}, printing: {} };
+  if (typeof value !== 'object' || value === null) {
+    return { printer: {}, update: {}, printing: {} };
+  }
   const record = value as Record<string, unknown>;
   return {
     printer: record['printer'] ?? {},
+    update: record['update'] ?? {},
     printing: record['printing'] ?? {},
   };
 }

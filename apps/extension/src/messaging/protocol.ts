@@ -1,5 +1,7 @@
 import type {
   BridgeConfig,
+  UpdateCheck,
+  UpdateDownload,
   ConfigPatch,
   Printer,
   PrintReceiptData,
@@ -42,7 +44,15 @@ export type ExtensionRequest =
    * address from a caller to validate and nothing a page could nominate. The
    * native host still has to recognise the document as a Booksy receipt.
    */
-  | { kind: 'PRINT_ACTIVE_TAB' };
+  | { kind: 'PRINT_ACTIVE_TAB' }
+  /**
+   * Look for a newer release, and fetch it.
+   *
+   * Writing intents even though a check changes nothing locally: it reaches the
+   * network, and AC19 means that must never happen without the user asking.
+   */
+  | { kind: 'CHECK_UPDATE' }
+  | { kind: 'DOWNLOAD_UPDATE' };
 
 export type ExtensionResponse =
   | { kind: 'HOST_STATE'; state: HostState }
@@ -51,6 +61,8 @@ export type ExtensionResponse =
   | { kind: 'PRINTED'; data: PrintTestData }
   | { kind: 'PRINTED_RECEIPT'; data: PrintReceiptData }
   | { kind: 'ACTIVE_TAB'; pdf: ActiveTabPdf | null; reason?: string }
+  | { kind: 'UPDATE'; check: UpdateCheck }
+  | { kind: 'UPDATE_DOWNLOADED'; download: UpdateDownload }
   | { kind: 'DETECTED'; receipts: DetectedReceipt[] }
   | { kind: 'ERROR'; message: string };
 
@@ -67,6 +79,8 @@ export const WRITING_KINDS: ExtensionRequest['kind'][] = [
   'PRINT_DETECTED',
   'DISMISS_DETECTED',
   'PRINT_ACTIVE_TAB',
+  'CHECK_UPDATE',
+  'DOWNLOAD_UPDATE',
 ];
 
 const READING_KINDS: ExtensionRequest['kind'][] = [
@@ -93,7 +107,9 @@ export function parseExtensionRequest(raw: unknown): ExtensionRequest | undefine
     const patch = parseConfigPatch(record['patch']);
     return patch === undefined ? undefined : { kind, patch };
   }
-  if (kind === 'PRINT_ACTIVE_TAB') return { kind };
+  if (kind === 'PRINT_ACTIVE_TAB' || kind === 'CHECK_UPDATE' || kind === 'DOWNLOAD_UPDATE') {
+    return { kind };
+  }
   if (kind === 'PRINT_DETECTED' || kind === 'DISMISS_DETECTED') {
     const downloadId = record['downloadId'];
     // An id, not a path: the caller names a receipt the worker already found,

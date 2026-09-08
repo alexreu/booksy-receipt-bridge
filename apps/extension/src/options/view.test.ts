@@ -32,6 +32,7 @@ const OFFLINE: HostState = {
 
 const CONFIG: BridgeConfig = {
   printer: { name: 'EPSON TM-T88V Receipt5', paperWidth: 80, printableWidth: 72, columns: 42 },
+  update: { repo: 'alexreu/booksy-receipt-bridge', token: '' },
   printing: { autoPrint: false, showPreview: true, confidenceThreshold: 0.9, allowedDirs: [] },
 };
 

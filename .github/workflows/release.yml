@@ -1,0 +1,87 @@
+name: Release
+
+# Tagging is what publishes. The extension's update check reads the latest
+# release from this repository, so a tag is the whole release procedure.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Build the installer
+    # windows-latest, not ubuntu: the executable is cross-buildable, but signing
+    # it is not, and an unsigned build makes SmartScreen warn the user.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Never publish something that does not pass its own gates.
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      - name: Build the native host
+        run: pnpm build:host --win
+
+      - name: Build the extension
+        run: pnpm build:extension
+
+      - name: Assemble the package
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $stage = "installer/stage/BooksyReceiptBridge-$version"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          Copy-Item installer/build/booksy-receipt-bridge.exe -Destination $stage
+          Copy-Item installer/build/pdfjs -Destination $stage -Recurse
+          Copy-Item installer/Install.ps1 -Destination $stage
+          Copy-Item installer/Uninstall.ps1 -Destination $stage
+          Copy-Item installer/README.md -Destination $stage
+          # The unpacked extension travels with the host, so one artifact
+          # updates both halves.
+          Copy-Item apps/extension/dist -Destination "$stage/extension" -Recurse
+
+          Compress-Archive -Path $stage -DestinationPath "installer/BooksyReceiptBridge-$version.zip"
+          "asset=installer/BooksyReceiptBridge-$version.zip" >> $env:GITHUB_OUTPUT
+        id: package
+
+      - name: Verify the host runs
+        shell: pwsh
+        run: |
+          $exe = "installer/build/booksy-receipt-bridge.exe"
+          $reported = & $exe --version
+          $expected = (Get-Content package.json | ConvertFrom-Json).version
+          if ($reported.Trim() -ne $expected) {
+            throw "Le binaire annonce $reported, attendu $expected"
+          }
+          # Proves pdf.js and its assets survived the bundling, which is the
+          # part that broke first when this was built.
+          & $exe ticket fixtures/booksy/recu-1167.anon.pdf | Select-Object -First 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: ${{ steps.package.outputs.asset }}
+
+      - name: Attach it to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.asset }}
+          generate_release_notes: true

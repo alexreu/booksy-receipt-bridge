@@ -195,6 +195,27 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.update {
+  margin: 0 0 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.update-summary {
+  margin: 0 0 4px;
+}
+
+.note {
+  margin: 0 0 7px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.note:empty {
+  display: none;
+}
+
 .hint,
 .footer {
   margin: 0;

@@ -17,7 +17,8 @@
     "gen:extension-key": "node scripts/gen-extension-key.mjs",
     "host": "tsx apps/native-host/src/main.ts",
     "host:probe": "tsx scripts/host-probe.ts",
-    "host:install": "tsx scripts/install-native-host-dev.ts"
+    "host:install": "tsx scripts/install-native-host-dev.ts",
+    "build:host": "tsx scripts/build-host.ts"
   },
   "devDependencies": {
     "@brb/booksy-parser": "workspace:*",
@@ -28,9 +29,11 @@
     "@brb/ticket-layout": "workspace:*",
     "@eslint/js": "^9.39.1",
     "@types/node": "^24.10.1",
+    "esbuild": "^0.28.2",
     "eslint": "^9.39.1",
     "globals": "^16.5.0",
     "jsdom": "^30.0.1",
+    "postject": "1.0.0-alpha.6",
     "tsx": "^4.20.7",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.47.0",

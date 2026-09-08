@@ -17,6 +17,7 @@ export const ReceiptSourceSchema = z.discriminatedUnion('kind', [
 ]);
 
 export const ConfigPatchSchema = z.object({
+  update: z.object({ repo: z.string().optional(), token: z.string().optional() }).optional(),
   printer: z
     .object({
       name: z.string().optional(),
@@ -63,6 +64,8 @@ export const NativeMessageSchema = z.discriminatedUnion('type', [
     }),
   }),
   z.object({ id, type: z.literal('PRINT_TEST') }),
+  z.object({ id, type: z.literal('CHECK_UPDATE') }),
+  z.object({ id, type: z.literal('DOWNLOAD_UPDATE') }),
 ]);
 
 export const NativeErrorSchema = z.object({

@@ -1,5 +1,6 @@
 import type { ActiveTabPdf } from '../messaging/protocol.ts';
 import type { DetectedRow } from './detected.ts';
+import type { UpdateView } from './update.ts';
 import type { PopupView } from './render.ts';
 
 /**
@@ -160,4 +161,16 @@ export function applyActiveTabPdf(
   name.textContent = pdf?.name ?? '—';
   button.disabled = !canPrint;
   button.title = canPrint ? '' : 'Configurez une imprimante pour pouvoir imprimer.';
+}
+
+/** Write the update section. Its own applier, like the sections above it. */
+export function applyUpdateView(document: Document, view: UpdateView): void {
+  const summary = document.getElementById('update-summary');
+  const detail = document.getElementById('update-detail');
+  const download = document.getElementById('download-update') as HTMLButtonElement | null;
+  if (summary === null || detail === null || download === null) return;
+
+  summary.textContent = view.summary;
+  detail.textContent = view.detail ?? '';
+  download.disabled = !view.canDownload;
 }

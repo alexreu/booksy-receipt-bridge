@@ -14,6 +14,9 @@ export interface CreateHostOptions {
   log?: Logger;
   configFile?: string;
   historyPath?: string;
+  updateDir?: string;
+  /** Injected so a test never reaches the network. */
+  fetch?: typeof fetch;
   /** Injected so a test can pin every timestamp the host produces. */
   clock?: Clock;
 }
@@ -67,6 +70,8 @@ export function createHost(options: CreateHostOptions = {}): Host {
     clock,
     configFile: file,
     historyPath: options.historyPath ?? join(dataDir(), 'print-history.json'),
+    updateDir: options.updateDir ?? join(dataDir(), 'updates'),
+    fetch: options.fetch ?? ((url, init) => fetch(url, init)),
   };
 
   return {

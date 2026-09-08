@@ -28,6 +28,7 @@ beforeEach(() => {
 function config(overrides: Partial<BridgeConfig> = {}): BridgeConfig {
   return {
     printer: { ...DEFAULT_CONFIG.printer, name: PRINTER },
+    update: DEFAULT_CONFIG.update,
     printing: { ...DEFAULT_CONFIG.printing, allowedDirs: [downloads] },
     ...overrides,
   };

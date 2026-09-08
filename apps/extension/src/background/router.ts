@@ -1,5 +1,7 @@
 import type {
   ConfigData,
+  UpdateCheck,
+  UpdateDownload,
   ListPrintersData,
   PingData,
   PrintReceiptData,
@@ -230,6 +232,28 @@ async function dispatch(
         return { kind: 'ERROR', message: response.error?.message ?? 'Impression échouée.' };
       }
       return { kind: 'PRINTED_RECEIPT', data: response.data };
+    }
+
+    case 'CHECK_UPDATE': {
+      const response = await deps.client.send<UpdateCheck>({
+        id: nextMessageId(),
+        type: 'CHECK_UPDATE',
+      });
+      if (!response.success || response.data === undefined) {
+        return { kind: 'ERROR', message: response.error?.message ?? 'Vérification impossible.' };
+      }
+      return { kind: 'UPDATE', check: response.data };
+    }
+
+    case 'DOWNLOAD_UPDATE': {
+      const response = await deps.client.send<UpdateDownload>({
+        id: nextMessageId(),
+        type: 'DOWNLOAD_UPDATE',
+      });
+      if (!response.success || response.data === undefined) {
+        return { kind: 'ERROR', message: response.error?.message ?? 'Téléchargement impossible.' };
+      }
+      return { kind: 'UPDATE_DOWNLOADED', download: response.data };
     }
 
     case 'PRINT_DETECTED': {

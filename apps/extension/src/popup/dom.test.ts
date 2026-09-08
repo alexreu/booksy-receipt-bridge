@@ -5,7 +5,12 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { PROTOCOL_VERSION, type StatusData } from '@brb/shared';
 import type { DetectedReceipt } from '../downloads/store.ts';
 import { detectedRows } from './detected.ts';
-import { applyActiveTabPdf, applyDetectedRows, applyPopupView } from './dom.ts';
+import {
+  applyActiveTabPdf,
+  applyDetectedRows,
+  applyPopupView,
+  applyUpdateView,
+} from './dom.ts';
 import { popupView } from './render.ts';
 
 /**
@@ -319,5 +324,30 @@ describe('applyActiveTabPdf', () => {
   it('stays hidden for a tab that simply is not a PDF', () => {
     applyActiveTabPdf(document, null, true, 'not-a-pdf');
     expect(document.getElementById('tab-pdf')?.hidden).toBe(true);
+  });
+});
+
+describe('applyUpdateView', () => {
+  it('writes the summary and enables the download when there is one', () => {
+    applyUpdateView(document, { summary: 'Version v0.2.0 disponible.', canDownload: true });
+    expect(document.getElementById('update-summary')?.textContent).toContain('v0.2.0');
+    expect((document.getElementById('download-update') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('keeps the download disabled when there is nothing to fetch', () => {
+    applyUpdateView(document, { summary: 'À jour.', canDownload: false });
+    expect((document.getElementById('download-update') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('shows and then clears the detail line', () => {
+    applyUpdateView(document, { summary: 'x', canDownload: false, detail: 'jeton refusé' });
+    expect(document.getElementById('update-detail')?.textContent).toBe('jeton refusé');
+    applyUpdateView(document, { summary: 'y', canDownload: false });
+    expect(document.getElementById('update-detail')?.textContent).toBe('');
+  });
+
+  it('starts unchecked, since nothing reaches the network unprompted', () => {
+    expect(document.getElementById('update-summary')?.textContent).toBe('Non vérifiée.');
+    expect((document.getElementById('download-update') as HTMLButtonElement).disabled).toBe(true);
   });
 });

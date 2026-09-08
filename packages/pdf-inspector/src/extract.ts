@@ -1,12 +1,40 @@
+import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { ensurePdfjsGlobals } from './node-globals.ts';
 import type { PdfInspection, PdfPageInfo, PdfTextItem } from './types.ts';
 
-const require_ = createRequire(import.meta.url);
+/** Overrides the asset location, for an install that puts them elsewhere. */
+export const PDFJS_ASSETS_ENV = 'BRB_PDFJS_ASSETS';
 
-/** Directory of the installed pdfjs-dist package, for its font and cmap assets. */
-function pdfjsAssetRoot(): string {
-  return dirname(require_.resolve('pdfjs-dist/package.json'));
+/**
+ * Where pdf.js finds its fonts, cmaps and wasm.
+ *
+ * THREE LOOKUPS, IN ORDER, AND THE ORDER MATTERS. Once the host is bundled into
+ * a single executable there is no `node_modules` to resolve against, so
+ * `require.resolve('pdfjs-dist')` throws and every parse fails. The installed
+ * host therefore ships these directories beside the executable, and finds them
+ * relative to it. The env var is the escape hatch for an unusual layout, and
+ * the resolve is what works in development.
+ */
+export function pdfjsAssetRoot(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env[PDFJS_ASSETS_ENV];
+  if (override !== undefined && override !== '') return override;
+
+  const besideExecutable = join(dirname(process.execPath), 'pdfjs');
+  if (existsSync(join(besideExecutable, 'standard_fonts'))) return besideExecutable;
+
+  try {
+    // Resolved lazily, and never reached in a bundled host. At module scope
+    // this crashed the executable outright: a CommonJS bundle has no
+    // `import.meta.url`, so createRequire threw before the host did anything.
+    return dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'));
+  } catch {
+    // Nothing left to try; pdf.js will report the missing font itself, which is
+    // a clearer error than one thrown from here.
+    return besideExecutable;
+  }
 }
 
 /**
@@ -24,9 +52,38 @@ function pdfjsAssetRoot(): string {
  * `verbosity: 0` limits pdf.js to errors. It logs to stderr, which is the native
  * host's own log channel, so a chatty PDF would otherwise pollute the log.
  */
+/**
+ * Where pdf.js's worker module lives.
+ *
+ * pdf.js sets up a "fake worker" by importing this module, and guesses its
+ * location from the bundle's own path - which in a single-file host is wrong,
+ * and failed with `Cannot find module .../pdf.worker.mjs`. Pointing
+ * `workerSrc` at a known file is deterministic instead of relying on that
+ * guess. Returns undefined when neither layout is present, leaving pdf.js to
+ * report the problem itself.
+ */
+export function pdfjsWorkerPath(env?: NodeJS.ProcessEnv): string | undefined {
+  const root = pdfjsAssetRoot(env);
+  const candidates = [
+    // Shipped flat beside the executable by the installer.
+    join(root, 'pdf.worker.mjs'),
+    // The layout inside the installed npm package, used in development.
+    join(root, 'legacy', 'build', 'pdf.worker.mjs'),
+  ];
+  return candidates.find((candidate) => existsSync(candidate));
+}
+
 export async function inspectPdf(data: Uint8Array): Promise<PdfInspection> {
+  // Before the import, not after: pdf.js reads these while its module
+  // initialises, and the bundled host threw on the first one.
+  ensurePdfjsGlobals();
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const assets = pdfjsAssetRoot();
+
+  const worker = pdfjsWorkerPath();
+  if (worker !== undefined) {
+    pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(worker).href;
+  }
 
   const doc = await pdfjs.getDocument({
     // pdf.js transfers ownership of the buffer, so hand it a private copy.

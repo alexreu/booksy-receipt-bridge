@@ -21,7 +21,8 @@ Le plan complet et les décisions d'architecture vivent dans
 | 1.5b / 6b | Spike matériel et `WindowsPrinterAdapter` sur imprimante réelle | **en attente d'un poste Windows** |
 | 7 | Détection des téléchargements + liste dans le popup | fait |
 | 8 | Impression du PDF affiché dans l'onglet actif | fait |
-| 9 → 10 | Installeur Windows, auto-print | à venir |
+| 9 | Exécutable autonome, installeur Windows, mises à jour | fait |
+| 10 | Auto-print | à venir |
 
 ## Architecture
 
@@ -117,6 +118,26 @@ fixtures/booksy/    PDF — gitignorés sauf *.anon.pdf
 debug/              sorties de l'inspecteur et des émetteurs — gitignoré
 spikes/escpos-raw/  protocole de mesure matériel (phase 1.5b)
 ```
+
+## Installer sur le poste de caisse
+
+```bash
+pnpm build:host --win     # booksy-receipt-bridge.exe, runtime Node embarqué
+pnpm build:extension
+```
+
+Puis sur le poste Windows, depuis le dossier livré et **sans droits
+administrateur** : `.\Install.ps1`. Détail dans
+[installer/README.md](installer/README.md).
+
+Un tag `v*` poussé sur GitHub déclenche la CI Windows, qui construit l'archive,
+vérifie que le binaire lit un PDF, et l'attache à la release. C'est cette
+release que le bouton « Vérifier » du popup interroge.
+
+Aucune vérification de mise à jour ne part d'elle-même : le service ne contacte
+rien sans un clic. Pour un dépôt privé, un jeton en lecture seule se pose une
+fois via `host config set update.token …` — il reste côté service, jamais dans
+le navigateur.
 
 ## Commandes
 
