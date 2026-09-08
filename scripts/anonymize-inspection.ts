@@ -26,9 +26,18 @@ import {
   type SyntheticTextLine,
 } from '../packages/pdf-inspector/src/testing/make-pdf.ts';
 
-/** Exact-text replacements. Same shape, no real data. */
+/**
+ * Replacements by SHAPE, never by literal value.
+ *
+ * Naming the real strings would defeat the point: this script would then be the
+ * place the identifying data lives, committed alongside the fixture it was
+ * supposed to scrub. Every rule below matches a pattern, so the script works on
+ * any receipt and contains nothing about a particular business.
+ *
+ * The merchant name is the one field with no pattern of its own, so it is found
+ * by POSITION instead - see `merchantNameIndex`.
+ */
 const REPLACEMENTS: Array<[RegExp, string]> = [
-  [/^ETABLISSEMENT EXEMPLE$/, 'SALON EXEMPLE COIFFURE'],
   [/^SIRET: \d+$/, 'SIRET: 00000000000000'],
   [/^N° TVA: [A-Z]{2}\d+$/, 'N° TVA: FR00000000000'],
   [
@@ -47,6 +56,26 @@ function anonymise(text: string): string {
   return text;
 }
 
+/**
+ * Which run holds the merchant name.
+ *
+ * The name is whatever sits directly above the SIRET line - the same relative
+ * rule the parser uses. Derived rather than declared, so this file never has to
+ * contain a real business name.
+ */
+function merchantNameIndex(items: readonly PdfTextItem[]): number {
+  const siret = items.findIndex((item) => /^SIRET\s*:/.test(item.text));
+  if (siret === -1) return -1;
+
+  const above = items
+    .map((item, index) => ({ item, index }))
+    .filter((entry) => entry.item.isWhitespace !== true && entry.item.text.trim() !== '')
+    .filter((entry) => entry.item.yTop < (items[siret]?.yTop ?? 0))
+    .sort((a, b) => b.item.yTop - a.item.yTop);
+
+  return above[0]?.index ?? -1;
+}
+
 const [inputPath, name] = process.argv.slice(2);
 if (inputPath === undefined || name === undefined) {
   process.stderr.write(
@@ -57,9 +86,11 @@ if (inputPath === undefined || name === undefined) {
 
 const inspection = JSON.parse(await readFile(inputPath, 'utf8')) as PdfInspection;
 
+const nameIndex = merchantNameIndex(inspection.items);
+
 let replaced = 0;
-const items: PdfTextItem[] = inspection.items.map((item) => {
-  const text = anonymise(item.text);
+const items: PdfTextItem[] = inspection.items.map((item, index) => {
+  const text = index === nameIndex ? 'SALON EXEMPLE COIFFURE' : anonymise(item.text);
   if (text === item.text) return item;
   replaced++;
   // Keep x and the vertical position; scale the advance to the new length so the
@@ -83,12 +114,14 @@ const serialised = `${JSON.stringify(anonymised, null, 2)}\n`;
 
 // Refuse to write a fixture that still contains anything the replacements were
 // meant to remove.
-const leaks = REPLACEMENTS.flatMap(([pattern]) =>
-  inspection.items
-    .filter((item) => pattern.test(item.text))
-    .map((item) => item.text)
-    .filter((text) => serialised.includes(text)),
-);
+const scrubbed = [
+  ...REPLACEMENTS.flatMap(([pattern]) =>
+    inspection.items.filter((item) => pattern.test(item.text)).map((item) => item.text),
+  ),
+  ...(nameIndex === -1 ? [] : [inspection.items[nameIndex]?.text ?? '']),
+].filter((text) => text !== '');
+
+const leaks = scrubbed.filter((text) => serialised.includes(text));
 if (leaks.length > 0) {
   process.stderr.write(`refusing to write: original text survives\n`);
   for (const leak of leaks) process.stderr.write(`  ${leak}\n`);

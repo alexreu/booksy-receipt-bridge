@@ -118,7 +118,7 @@ export function buildTicketLayout(
     // an inspection would look at.
     if (software !== undefined) text(`Logiciel : ${software}`);
     if (softwareId !== undefined) text(`Id logiciel : ${softwareId}`);
-    // The certification reference identifies itself, e.g. "(NF525)_B_0000-0_...".
+    // The certification reference identifies itself: it begins with "(NF525)".
     if (certification !== undefined) text(certification);
     if (signatureTimestamp !== undefined) text(`Horodatage : ${signatureTimestamp}`);
     if (signature !== undefined) {
