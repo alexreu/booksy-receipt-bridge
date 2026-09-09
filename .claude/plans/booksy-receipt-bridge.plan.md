@@ -370,6 +370,169 @@ Quatre choses découvertes en implémentant, à retenir pour les phases suivante
 
 ---
 
+## 17. Phase 11 — un seul chemin : l'onglet, l'aperçu, l'impression, livrée le 2026-09-08
+
+609 tests, 41 fichiers, quatre portes à exit 0. Extension : 25,7 kB — 9 kB de
+moins qu'en phase 10, uniquement par soustraction.
+
+### Le téléchargement disparaît du produit
+
+Décision du 2026-09-08 : on ne télécharge rien. Un reçu s'ouvre dans un onglet,
+l'extension le lit, le convertit et l'imprime. Ce qui a été supprimé :
+
+| Supprimé | Pourquoi ça tombe |
+|---|---|
+| `downloads/` (filtre, magasin, veilleur) et la permission `downloads` | Plus rien à surveiller. Une permission que le code n'utilise plus est une promesse faite au navigateur pour rien. |
+| Intentions `LIST_DETECTED`, `PRINT_DETECTED`, `DISMISS_DETECTED` | Elles ne servaient que la liste des téléchargements. |
+| Intention `PRINT_ACTIVE_TAB` | L'impression directe n'a plus d'appelant : la popup passe toujours par l'aperçu. |
+| Le badge de l'icône | Il comptait des reçus détectés qui n'existent plus. |
+| Source d'aperçu `download` | `PreviewSource` n'a plus qu'un cas, et il ne porte **aucune adresse** : le worker lit l'onglet lui-même. |
+| Cases « impression automatique après téléchargement » et « seuil de confiance » | L'impression automatique n'avait de déclencheur que le téléchargement. |
+| Case « afficher un aperçu » | L'aperçu n'est plus une option : c'est le seul chemin, et c'est là que l'imprimante se choisit. |
+
+Le host garde `printing.autoPrint`, `showPreview`, `confidenceThreshold` et
+`allowedDirs` dans sa configuration : la source `path` sert encore à la CLI
+(`ticket fichier.pdf`), et §23 la valide toujours. L'extension, elle, n'envoie
+plus jamais de chemin.
+
+### La popup n'a plus qu'un bouton, et il est toujours là
+
+« Imprimer » ouvre l'aperçu. Rien d'autre : ni nom d'imprimante affiché, ni
+liste, ni impression directe. Le bouton ne dépend plus d'une imprimante
+configurée — un poste sans imprimante par défaut peut imprimer, puisque le choix
+se fait dans l'aperçu, par travail, sans jamais être écrit dans la
+configuration.
+
+Il reste **visible en permanence**, grisé avec sa raison quand l'onglet n'affiche
+pas de PDF. La première version le masquait dans ce cas : la popup se réduisait
+alors à « Imprimer un test », ce qui donne à lire que cette extension n'imprime
+pas de reçus. Un bouton grisé qui dit pourquoi est la version honnête — défaut
+remonté par l'utilisateur, invisible aux tests puisque chacun lui passait un PDF.
+
+### Un PDF local s'imprime, sans nouvelle permission
+
+Un onglet `file://` était refusé : le worker ne peut pas lire un fichier du
+disque sans une permission que ce projet ne demande pas. Mais **le service, si**
+— et il le fait déjà proprement : il revalide le chemin contre ses dossiers
+autorisés, résout les liens symboliques avant de comparer, et vérifie que le
+fichier est bien un PDF (§23).
+
+Le worker ne lit donc rien : il lit l'URL de l'onglet — c'est ce que `activeTab`
+accorde au clic — en extrait le chemin et le passe au service. Deux routes, une
+règle : `http(s)` voyage en octets faute de chemin à relire, `file:` voyage en
+chemin. Vérifié dans Chrome sur `file:///Users/…/Downloads/recu-1167.pdf` :
+`Ticket 1167 imprimé (856 octets)`. Un chemin hors des dossiers autorisés est
+refusé par le service, comme avant.
+
+### « Imprimer un test » disparaît
+
+Un deuxième bouton d'impression dans une popup qui n'en veut qu'un, et une
+règle imprimée n'est plus le moyen de caler la largeur : le nombre de colonnes
+vit dans les Paramètres. L'intention `PRINT_TEST` quitte l'extension ; le
+service la garde dans son protocole.
+
+### La largeur redescend dans les Paramètres
+
+La phase 10 mettait un champ « Colonnes » dans l'aperçu, qui refaisait le rendu
+à chaque frappe. Utile pour caler une imprimante, inutile ensuite : le poste
+n'imprime que du 80 mm (décision du 2026-09-09), la largeur est une propriété du
+papier, pas une décision par ticket.
+
+Le champ part, et avec lui le paramètre qui le portait — `columns` disparaît de
+`RENDER_PREVIEW`, `PRINT_PREVIEW`, `RENDER_RECEIPT` et `PRINT_RECEIPT`. Le
+parseur l'ignore désormais si un appelant l'attache : sans ça, une page aurait pu
+faire imprimer un ticket à une largeur que personne n'a vue à l'écran. L'aperçu
+continue d'**afficher** la largeur employée (« 856 octets, 42 colonnes ») : c'est
+une information sur le travail, pas une commande.
+
+Reste dans l'aperçu ce qui se décide par travail : l'imprimante.
+
+### L'aperçu offre toutes les files du poste
+
+`printerChoices` construit la liste et la sélection : l'imprimante configurée est
+présélectionnée pour que le cas courant tienne en un clic ; si elle a disparu du
+poste, **rien n'est sélectionné** — se rabattre en silence sur une autre file,
+c'est sortir un reçu là où personne ne l'attend. Sur Windows, `Get-Printer`
+énumère toutes les imprimantes installées, thermiques ou non : c'est l'utilisateur
+qui juge, pas l'extension.
+
+---
+
+## 16. Phase 10 — aperçu avant impression, livrée le 2026-09-08
+
+687 tests, 45 fichiers, quatre portes à exit 0. Extension : 34,8 kB.
+
+### L'aperçu montre le travail réel, pas un sosie
+
+`RENDER_RECEIPT` accepte un troisième format, `svg`, qui **émet les octets
+ESC/POS puis les décode**. Ce qui est validé à l'écran est donc le job lui-même :
+mêmes colonnes, mêmes doubles largeurs, mêmes caractères non représentables.
+Un rendu HTML de la même mise en page aurait été un second dessin — joli, et
+faux dès que le code page remplace un caractère.
+
+Corollaire : la réponse porte `byteCount`, `columns` et `unmapped`. L'aperçu
+peut dire « 812 octets, 42 colonnes » et signaler les caractères remplacés
+**avant** que le papier sorte.
+
+### La page ne détient qu'un identifiant
+
+| Décision | Raison |
+|---|---|
+| Les octets ne quittent jamais le worker | Un onglet d'extension est un contexte de plus où un PDF de client pourrait traîner. La page reçoit `?id=`, rien d'autre. |
+| Onglet actif → `bytes`, téléchargement → `path` | Le worker ne peut pas lire un fichier local ; le host, si. Garder le chemin fait **revalider la sécurité de chemin (§23) à chaque appel** au lieu d'une seule fois à la préparation. |
+| Le libellé revient avec le rendu | Le passer dans l'URL aurait donné à la page une seconde source de vérité, modifiable par qui ouvre l'onglet. |
+| `printerName` et `columns` par job | Un choix fait dans l'aperçu ne doit pas devenir silencieusement le défaut enregistré. |
+| Trois aperçus en attente au maximum | Le stockage de session n'est pas une file d'attente ; au-delà, le plus ancien tombe. |
+
+### Deux vrais défauts trouvés par les tests
+
+1. **`RENDER_PREVIEW` perdait son `id`.** L'intention était rangée avec les
+   lectures simples, dont l'analyse renvoie `{ kind }` avant même de regarder
+   les autres champs. Le rendu partait donc toujours sur un aperçu vide.
+2. **La règle du routeur était une liste de refus.** Toute intention *nouvelle*
+   était par construction autorisée depuis un contexte de page — l'inverse de ce
+   qu'on veut d'un défaut. Elle est devenue une liste d'autorisation : seules
+   les lectures y figurent, tout le reste exige l'origine de l'extension.
+
+### Le SVG est assaini même s'il vient de nous
+
+Il est produit par ce projet, à partir d'octets que ce projet a émis. Il arrive
+tout de même **sous forme de chaîne, dans un document vivant** : il est analysé
+par `DOMParser`, réduit aux formes que le décodeur produit (`svg g rect text
+line tspan`) et débarrassé de tout attribut `on*`. Un `<script>` dans un SVG
+importé s'exécute ; celui-là ne peut pas exister.
+
+### Ce que la sécurité de chemin a fait au passage
+
+Le premier essai de rendu n'a rien sorti : `resolveSource` a refusé la fixture,
+qui n'est pas dans les Téléchargements. Le §23 fonctionne, y compris contre
+son auteur. Le rendu s'est fait par octets.
+
+### Vérifié dans Chrome 152 le 2026-09-08
+
+Fixture anonymisée servie en `http://127.0.0.1`, onglet actif → popup →
+« Imprimer ce ticket » : l'onglet d'aperçu s'ouvre, titré par le libellé venu
+avec le rendu, et affiche le ticket décodé — en-tête double largeur, totaux,
+ligne de découpe.
+
+| Ce qui est démontré | Preuve |
+|---|---|
+| L'aperçu est bien le job | La page annonce « 856 octets, 42 colonnes » ; le journal du service écrit `Ticket 1167 imprimé (712 octets)` après passage à 32 colonnes — la même valeur que la page affichait alors. |
+| La calibration est vivante | 32 colonnes : le ticket se rétrécit, l'adresse passe sur deux lignes, le compte d'octets suit. |
+| Un choix ponctuel reste ponctuel | Imprimé à 32 colonnes, `config.json` porte toujours `columns: 42`. |
+| Pas de réimpression depuis un onglet resté ouvert | Rechargé après impression, l'aperçu répond « Cet aperçu a expiré ». |
+
+**Le seul incident : un service worker périmé.** `PREPARE_PREVIEW` et
+`RENDER_PREVIEW` revenaient « Message interne inconnu » alors que le bundle sur
+le disque — vérifié octet par octet en copiant `chrome-extension://…/background/
+index.js` — contenait bien les deux. Chrome sert les pages depuis le disque mais
+garde le script du worker enregistré à l'installation : les pages étaient
+neuves, le routeur non. « Mettre à jour » sur `chrome://extensions` a réglé le
+cas. À retenir pour la procédure de test : recharger l'extension ne suffit pas
+toujours, il faut vérifier que le worker a bien changé.
+
+---
+
 ## 15. Phase 9 — exécutable autonome, installeur, mises à jour, livrée le 2026-09-08
 
 645 tests, 43 fichiers, quatre portes à exit 0.
