@@ -11,11 +11,25 @@ permissions:
   contents: write
 
 jobs:
-  windows:
-    name: Build the installer
-    # windows-latest, not ubuntu: the executable is cross-buildable, but signing
-    # it is not, and an unsigned build makes SmartScreen warn the user.
-    runs-on: windows-latest
+  package:
+    name: Build the installer (${{ matrix.target }})
+    # One archive per platform. Windows is where this runs in production; macOS
+    # and Linux exist because the browser half is identical everywhere, and a
+    # developer machine should install the real thing rather than a wrapper.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: windows
+            exe: booksy-receipt-bridge.exe
+          - os: macos-latest
+            target: macos
+            exe: booksy-receipt-bridge
+          - os: ubuntu-latest
+            target: linux
+            exe: booksy-receipt-bridge
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
 
@@ -36,35 +50,54 @@ jobs:
       - run: pnpm test
 
       - name: Build the native host
-        run: pnpm build:host --win
+        # --win downloads the Windows runtime; elsewhere the runner's own Node
+        # is injected, so the binary matches the machine that built it.
+        run: pnpm build:host ${{ matrix.target == 'windows' && '--win' || '' }}
 
       - name: Build the extension
         run: pnpm build:extension
 
+      # pwsh is on every runner, so the three platforms assemble their archive
+      # with one script instead of three that drift apart.
       - name: Assemble the package
+        id: package
         shell: pwsh
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
-          $stage = "installer/stage/BooksyReceiptBridge-$version"
+          $name = "BooksyReceiptBridge-$version-${{ matrix.target }}"
+          $stage = "installer/stage/$name"
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
-          Copy-Item installer/build/booksy-receipt-bridge.exe -Destination $stage
+          Copy-Item "installer/build/${{ matrix.exe }}" -Destination $stage
           Copy-Item installer/build/pdfjs -Destination $stage -Recurse
-          Copy-Item installer/Install.ps1 -Destination $stage
-          Copy-Item installer/Uninstall.ps1 -Destination $stage
           Copy-Item installer/README.md -Destination $stage
+          if ('${{ matrix.target }}' -eq 'windows') {
+            Copy-Item installer/Install.ps1 -Destination $stage
+            Copy-Item installer/Uninstall.ps1 -Destination $stage
+          } else {
+            Copy-Item installer/install.sh -Destination $stage
+            Copy-Item installer/uninstall.sh -Destination $stage
+          }
           # The unpacked extension travels with the host, so one artifact
           # updates both halves.
           Copy-Item apps/extension/dist -Destination "$stage/extension" -Recurse
 
-          Compress-Archive -Path $stage -DestinationPath "installer/BooksyReceiptBridge-$version.zip"
-          "asset=installer/BooksyReceiptBridge-$version.zip" >> $env:GITHUB_OUTPUT
-        id: package
+          $asset = "installer/$name.zip"
+          if ('${{ matrix.target }}' -eq 'windows') {
+            Compress-Archive -Path $stage -DestinationPath $asset
+          } else {
+            # `zip`, not Compress-Archive: it keeps the executable bit, and a
+            # service that arrives without it cannot start.
+            Push-Location installer/stage
+            zip -r -q "../$name.zip" $name
+            Pop-Location
+          }
+          "asset=$asset" >> $env:GITHUB_OUTPUT
 
       - name: Verify the host runs
         shell: pwsh
         run: |
-          $exe = "installer/build/booksy-receipt-bridge.exe"
+          $exe = "installer/build/${{ matrix.exe }}"
           $reported = & $exe --version
           $expected = (Get-Content package.json | ConvertFrom-Json).version
           if ($reported.Trim() -ne $expected) {
@@ -76,7 +109,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: installer
+          name: installer-${{ matrix.target }}
           path: ${{ steps.package.outputs.asset }}
 
       - name: Attach it to the release

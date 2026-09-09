@@ -6,6 +6,7 @@ import {
   checkForUpdate,
   describeNetworkError,
   downloadUpdate,
+  pickAsset,
   shortCause,
   timedOut,
   type UpdateDeps,
@@ -298,5 +299,32 @@ describe('network failures are diagnosable', () => {
     });
     await checkForUpdate(deps({ fetch }));
     expect(fetch).toHaveBeenCalled();
+  });
+});
+
+describe('pickAsset', () => {
+  const RELEASE = [
+    { name: 'BooksyReceiptBridge-1.0.0-linux.zip' },
+    { name: 'BooksyReceiptBridge-1.0.0-macos.zip' },
+    { name: 'BooksyReceiptBridge-1.0.0-windows.zip' },
+  ];
+
+  it('takes the archive built for this machine', () => {
+    expect(pickAsset(RELEASE, 'win32')?.name).toContain('windows');
+    expect(pickAsset(RELEASE, 'darwin')?.name).toContain('macos');
+    expect(pickAsset(RELEASE, 'linux')?.name).toContain('linux');
+  });
+
+  it('falls back to the only archive there is', () => {
+    // A release published before the archives were named per platform, and any
+    // single-platform release, look exactly like this.
+    const single = [{ name: 'BooksyReceiptBridge-0.1.0.zip' }];
+    expect(pickAsset(single, 'darwin')?.name).toBe('BooksyReceiptBridge-0.1.0.zip');
+  });
+
+  it('ignores what is not an installer', () => {
+    const mixed = [{ name: 'notes.md' }, { name: 'BooksyReceiptBridge-1.0.0-macos.zip' }];
+    expect(pickAsset(mixed, 'darwin')?.name).toContain('macos');
+    expect(pickAsset([{ name: 'notes.md' }], 'darwin')).toBeUndefined();
   });
 });

@@ -37,6 +37,34 @@ export interface UpdateDeps {
 /** Asset the installer is shipped as. */
 const ASSET_PATTERN = /\.(?:zip|exe)$/i;
 
+/** What this machine's archive is called. */
+const PLATFORM_TOKEN: Record<string, string> = {
+  win32: 'windows',
+  darwin: 'macos',
+  linux: 'linux',
+};
+
+/**
+ * The archive for THIS machine, out of a release that carries one per platform.
+ *
+ * Falls back to the first installable asset, which is what a release published
+ * before the archives were named per platform looks like - and what a
+ * single-platform release will always look like. Downloading a Windows archive
+ * onto a Mac would be a confusing way to fail.
+ */
+export function pickAsset<T extends { name: string }>(
+  assets: readonly T[],
+  platform: string = process.platform,
+): T | undefined {
+  const installable = assets.filter((asset) => ASSET_PATTERN.test(asset.name));
+  const token = PLATFORM_TOKEN[platform];
+  const mine =
+    token === undefined
+      ? undefined
+      : installable.find((asset) => asset.name.toLowerCase().includes(token));
+  return mine ?? installable[0];
+}
+
 /**
  * How long to wait before giving up.
  *
@@ -182,7 +210,7 @@ export async function checkForUpdate(deps: UpdateDeps): Promise<UpdateCheck> {
 
   const latest = release.tag_name;
   const available = isNewer(latest, deps.currentVersion);
-  const asset = (release.assets ?? []).find((candidate) => ASSET_PATTERN.test(candidate.name));
+  const asset = pickAsset(release.assets ?? []);
 
   deps.log?.(
     `Version publiée ${latest}, installée ${deps.currentVersion}` +
@@ -219,7 +247,7 @@ export async function downloadUpdate(deps: UpdateDeps): Promise<UpdateDownload> 
     await deps.fetch(url, { headers: headers(deps.token, 'application/vnd.github+json') })
   ).json()) as Release;
 
-  const asset = (release.assets ?? []).find((candidate) => ASSET_PATTERN.test(candidate.name));
+  const asset = pickAsset(release.assets ?? []);
   if (asset === undefined) {
     return {
       ok: false,

@@ -14,17 +14,26 @@ Uninstall.ps1               désinstallation
 
 ## Installer
 
-Dans PowerShell, **sans droits administrateur** :
+Sous Windows, dans PowerShell, **sans droits administrateur** :
 
 ```powershell
 .\Install.ps1
+```
+
+Sous macOS ou Linux :
+
+```sh
+./install.sh
 ```
 
 L'exécutable va sous `%LOCALAPPDATA%\Programs\BooksyReceiptBridge`, et
 l'enregistrement Native Messaging sous `HKCU`. Aucune élévation n'est demandée :
 c'est délibéré, un poste de caisse contraint n'en donne pas forcément.
 
-Chaque navigateur Chromium reçoit son entrée. Un navigateur absent est ignoré.
+Chaque navigateur Chromium reçoit son entrée : sous Windows dans `HKCU`, sous
+macOS et Linux dans le dossier `NativeMessagingHosts` du navigateur. Un
+navigateur absent est ignoré — sous macOS et Linux, seuls ceux réellement
+installés sont touchés.
 
 L'extension est copiée elle aussi, sous
 `%LOCALAPPDATA%\Programs\BooksyReceiptBridge\extension`. **Chargez-la depuis

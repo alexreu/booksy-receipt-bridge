@@ -65,7 +65,7 @@ packages/
   ticket-layout/      Receipt → TicketLayout : la grille en colonnes
   receipt-renderer/   émetteurs ESC/POS, PDF A4, HTML, texte, et décodeur SVG
   printer/            PrinterAdapter : Windows (RAW), CUPS, mock, fichier
-installer/            Install.ps1, Uninstall.ps1, README du poste de caisse
+installer/            Install.ps1 et install.sh (Windows / macOS-Linux), README
 fixtures/booksy/      PDF de test — seuls les *.anon.pdf sont committés
 scripts/              build du binaire, clé d'extension, sondes de développement
 spikes/escpos-raw/    protocole de mesure sur imprimante réelle
@@ -73,17 +73,22 @@ spikes/escpos-raw/    protocole de mesure sur imprimante réelle
 
 ## Installer sur un poste
 
-Télécharger `BooksyReceiptBridge-x.y.z.zip` depuis la
+Chaque release porte une archive par système. Prendre la sienne dans la
 [dernière release](https://github.com/alexreu/booksy-receipt-bridge/releases/latest),
-la décompresser, puis dans PowerShell — **sans droits administrateur** :
+la décompresser, puis, **sans droits administrateur** :
 
-```powershell
-.\Install.ps1
-```
+| Système | Archive | Commande |
+|---|---|---|
+| Windows | `…-windows.zip` | `.\Install.ps1` dans PowerShell |
+| macOS | `…-macos.zip` | `./install.sh` |
+| Linux | `…-linux.zip` | `./install.sh` |
 
-Le service va sous `%LOCALAPPDATA%`, l'enregistrement Native Messaging sous
-`HKCU`, et l'extension est copiée à côté du service. L'installeur affiche le
-chemin exact à charger.
+Le service s'installe dans le profil de l'utilisateur — `%LOCALAPPDATA%` sous
+Windows, `~/.local/share/BooksyReceiptBridge` ailleurs — et l'extension est
+copiée à côté de lui. L'enregistrement Native Messaging va dans `HKCU` sous
+Windows, et dans le dossier `NativeMessagingHosts` de **chaque navigateur
+Chromium présent** sous macOS et Linux : Chrome, Chromium, Edge, Brave. Un
+navigateur absent est ignoré. L'installeur affiche le chemin exact à charger.
 
 Ensuite, une fois :
 
@@ -96,9 +101,10 @@ Ensuite, une fois :
 
 Détail et dépannage : [installer/README.md](installer/README.md).
 
-**Mises à jour.** Un tag `v*` déclenche la CI Windows, qui construit l'archive,
-vérifie que le binaire lit vraiment un PDF, et l'attache à la release. Le bouton
-« Vérifier » du popup interroge cette release ; il ne part jamais de lui-même.
+**Mises à jour.** Un tag `v*` construit une archive par système — chacune sur son
+propre runner, qui vérifie que le binaire lit vraiment un PDF avant de l'attacher
+à la release. Le bouton « Vérifier » du popup interroge cette release et prend
+l'archive de la machine où il tourne ; il ne part jamais de lui-même.
 
 ## Développement
 
@@ -106,7 +112,8 @@ vérifie que le binaire lit vraiment un PDF, et l'attache à la release. Le bout
 pnpm install
 pnpm lint && pnpm typecheck && pnpm test
 pnpm build:extension          # apps/extension/dist
-pnpm build:host --win         # exécutable autonome, runtime embarqué
+pnpm build:host               # exécutable autonome pour cette machine
+pnpm build:host --win         # la variante Windows, depuis n'importe quel poste
 ```
 
 Piloter le service sans navigateur — il est la source de vérité :
