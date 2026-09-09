@@ -30,6 +30,9 @@ jobs:
             target: linux
             exe: booksy-receipt-bridge
     runs-on: ${{ matrix.os }}
+    # A hung step used to burn twenty minutes before anyone noticed. The whole
+    # job is under two minutes when it works, so this only ever kills a hang.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
 
@@ -44,11 +47,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Never publish something that does not pass its own gates.
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
-
+      # No lint, typecheck or test here: the CI workflow runs all three on this
+      # exact commit, on Linux and Windows. Running them again once per platform
+      # tripled the release for no new information - and it was one of those
+      # repeats, hanging on the Linux runner, that made a release take twenty
+      # minutes and end with nothing published. What this workflow verifies is
+      # the ARTIFACT, which CI never builds: that step stays.
       - name: Build the native host
         # --win downloads the Windows runtime; elsewhere the runner's own Node
         # is injected, so the binary matches the machine that built it.

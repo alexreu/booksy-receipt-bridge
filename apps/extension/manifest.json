@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Booksy Receipt Bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Imprime les reçus Booksy sur une imprimante thermique 80 mm.",
   "minimum_chrome_version": "116",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApOrViVXKvH8GVJk/Gws8zZXxRoR74GTm8HVsnpY1e8uDQj8U4YLabjT/u9xJMKWBvJp2Qd131Ef+KI0RSvR+SVoK2CBZJG1Y9sCNMwDLxS2uYNSg4DZT4f5ujRAwwcm1T3mgiiEWpRiiKrTx4N3PDL7Zi/u2L0FlxY538k8MuJ9vzD6nCckO9cznDicnuSQlDtdAM3LKeks2c0QXMUFC5OJu9xOKi3XIAYSiDY6K9jtYexvNlePDtBGUTZv27PC4YYasUuTkYjz29Y1YZu4wMK83VGj+WolUT+1jPtNjpXd/CwDSDhWSNflrWesZo0dcJHN6PsENht0q1+IG9bjqCQIDAQAB",

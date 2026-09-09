@@ -22,6 +22,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    # Observed: a test step stuck for twenty minutes on a runner. The suite
+    # takes seconds, so anything near this ceiling is a hang, not slowness.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
