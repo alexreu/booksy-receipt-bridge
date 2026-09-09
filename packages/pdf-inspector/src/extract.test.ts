@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { join } from 'node:path';
 import {
   PDFJS_ASSETS_ENV,
+  assetUrl,
   groupIntoLines,
   inspectPdf,
   linesToText,
@@ -191,5 +193,17 @@ describe('pdfjsAssetRoot', () => {
     // In a bundled single-file host there is no node_modules to resolve
     // against, which is why the executable-relative lookup exists at all.
     expect(pdfjsAssetRoot({})).toContain('pdfjs-dist');
+  });
+});
+
+describe('assetUrl', () => {
+  it('hands pdf.js a file URL that ends in a forward slash', () => {
+    // pdf.js checks for that exact character. On Windows `join` ends a path
+    // with a backslash, so every parse failed there - the whole product, on
+    // its target platform, caught by the Windows runner and by nothing else.
+    const url = assetUrl(join('/opt', 'pdfjs'), 'cmaps');
+    expect(url.startsWith('file://')).toBe(true);
+    expect(url.endsWith('/')).toBe(true);
+    expect(url).not.toContain('\\');
   });
 });

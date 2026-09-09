@@ -1,4 +1,5 @@
 import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DATA_DIR_ENV, configPath, dataDir, logDir } from './paths.ts';
 
@@ -18,9 +19,12 @@ describe('dataDir', () => {
   });
 
   it('derives the config and log paths from it', () => {
-    const override = { [DATA_DIR_ENV]: '/tmp/brb-test' };
-    expect(configPath(override)).toBe('/tmp/brb-test/config.json');
-    expect(logDir(override)).toBe('/tmp/brb-test/logs');
+    // Built with join, not written with slashes: the separator is the
+    // platform's, and hardcoding one made this red on the Windows runner only.
+    const root = join('/tmp', 'brb-test');
+    const override = { [DATA_DIR_ENV]: root };
+    expect(configPath(override)).toBe(join(root, 'config.json'));
+    expect(logDir(override)).toBe(join(root, 'logs'));
   });
 
   it('uses APPDATA on Windows', () => {

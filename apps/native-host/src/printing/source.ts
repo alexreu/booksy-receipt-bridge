@@ -1,7 +1,7 @@
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
-import { extname, isAbsolute, join, sep } from 'node:path';
+import { extname, isAbsolute, join, normalize, sep } from 'node:path';
 
 /**
  * Turn a ReceiptSource into bytes, safely (plan sections 22 and 23).
@@ -116,10 +116,17 @@ async function fromPath(path: string, options: ResolveSourceOptions): Promise<So
  * The separator matters: without it "/Users/x/Downloads-secret" would pass as
  * being inside "/Users/x/Downloads". Windows paths are compared
  * case-insensitively, as the filesystem is.
+ *
+ * Both sides are normalised first, which on Windows turns a forward slash into
+ * a backslash. An allowed directory is typed by a person into a configuration
+ * file, and "C:/Users/x/Downloads" is a perfectly reasonable thing to type -
+ * without this it matched nothing, because the comparison was made against a
+ * path the filesystem had written with backslashes.
  */
 export function isInside(candidate: string, root: string): boolean {
   const normalise = (value: string): string => {
-    const trimmed = value.endsWith(sep) ? value.slice(0, -sep.length) : value;
+    const normalised = normalize(value);
+    const trimmed = normalised.endsWith(sep) ? normalised.slice(0, -sep.length) : normalised;
     return process.platform === 'win32' ? trimmed.toLowerCase() : trimmed;
   };
   const target = normalise(candidate);

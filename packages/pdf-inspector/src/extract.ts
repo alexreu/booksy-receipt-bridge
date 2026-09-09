@@ -62,6 +62,16 @@ export function pdfjsAssetRoot(env: NodeJS.ProcessEnv = process.env): string {
  * guess. Returns undefined when neither layout is present, leaving pdf.js to
  * report the problem itself.
  */
+/**
+ * A directory as pdf.js wants it: a file:// URL ending in a forward slash.
+ *
+ * Exported so the shape can be asserted on any platform, which is the only way
+ * a Mac notices that a Windows path would have been rejected.
+ */
+export function assetUrl(root: string, directory: string): string {
+  return `${pathToFileURL(join(root, directory)).href}/`;
+}
+
 export function pdfjsWorkerPath(env?: NodeJS.ProcessEnv): string | undefined {
   const root = pdfjsAssetRoot(env);
   const candidates = [
@@ -90,10 +100,14 @@ export async function inspectPdf(data: Uint8Array): Promise<PdfInspection> {
     data: new Uint8Array(data),
     verbosity: 0,
     useSystemFonts: false,
-    standardFontDataUrl: join(assets, 'standard_fonts/'),
-    cMapUrl: join(assets, 'cmaps/'),
+    // file:// URLs, not paths. pdf.js requires a trailing "/" and checks for
+    // that character: on Windows `join` ends the path with a backslash, so
+    // every parse failed there with "must include trailing slash" - the whole
+    // product, on its target platform. Found by the Windows CI runner.
+    standardFontDataUrl: assetUrl(assets, 'standard_fonts'),
+    cMapUrl: assetUrl(assets, 'cmaps'),
     cMapPacked: true,
-    wasmUrl: join(assets, 'wasm/'),
+    wasmUrl: assetUrl(assets, 'wasm'),
   }).promise;
 
   try {

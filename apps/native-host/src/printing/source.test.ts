@@ -185,4 +185,11 @@ describe('isInside', () => {
   it('rejects a parent directory', () => {
     expect(isInside('/home/x', '/home/x/Downloads')).toBe(false);
   });
+
+  it('reads a forward slash as a separator wherever it runs', () => {
+    // Found by the Windows runner, which is the only place it fails: an
+    // allowed directory is typed by a person, and "C:/Users/x/Downloads" is a
+    // reasonable thing to type. Before normalising, it matched nothing there.
+    expect(isInside(join('/home/x/Downloads', 'b.pdf'), '/home/x/Downloads/')).toBe(true);
+  });
 });
