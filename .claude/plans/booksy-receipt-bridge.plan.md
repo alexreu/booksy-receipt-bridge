@@ -396,14 +396,32 @@ CUPS sont, elles, le matériel réel du poste : la règle nomme désormais les
 pilotes qui inventent leurs files (`mock`, `file`) au lieu de les déduire par
 la négative.
 
-### Ce qu'une imprimante classique peut prouver, et ce qu'elle ne peut pas
+### Une imprimante ordinaire reçoit un ticket, pas des codes de contrôle
 
-Le travail envoyé est de l'ESC/POS : des octets destinés à une tête thermique.
-Une laser ou un jet d'encre les recevra en `raw` et sortira des codes de
-contrôle imprimés comme du texte. Le trajet complet — onglet, aperçu, choix de
-la file, spouleur, travail accepté — est donc vérifiable sur n'importe quelle
-imprimante ; **la sortie papier, non**. Seule une imprimante ESC/POS rend un
-ticket lisible.
+L'ESC/POS est destiné à une tête thermique ; une laser le sortirait en
+caractères de contrôle. `printer.kind` tranche : `thermal` reçoit les octets,
+`paper` reçoit **le même ticket rendu en PDF**, à sa largeur réelle, dans le
+coin d'une A4, avec un filet gris là où le rouleau de 80 mm s'arrêterait.
+
+`emitPdf` écrit le PDF à la main, sans dépendance : le host est un exécutable
+unique sans navigateur (AC20), donc rien ici ne sait rasteriser du HTML. La
+police est le Courier des 14 polices de base — monospace, ce qui est tout le
+sujet : la géométrie d'un ticket **est** une grille de caractères. Les lignes
+viennent du même `renderTicketLines` que l'ESC/POS, donc les deux appareils
+impriment le même découpage, les mêmes alignements, les mêmes colonnes.
+
+**Un défaut que seule l'impression a montré.** Doubler la hauteur en doublant
+le corps de la police double aussi la largeur : le titre sortait du guide 80 mm.
+Une imprimante thermique, elle, ne double que la hauteur. L'échelle horizontale
+est donc ramenée de moitié quand la hauteur double. Trouvé en regardant la page,
+pas en lisant un test — le test est venu après.
+
+Un pilote qui ne sait parler que RAW le dit en n'implémentant pas
+`printDocument` : le service refuse alors, plutôt que de gâcher une feuille pour
+prouver que l'ESC/POS n'est pas du texte.
+
+Vérifié sur le Canon TR4600 de ce poste : travail `Canon_TR4600_series-41`
+accepté par la file.
 
 ---
 
