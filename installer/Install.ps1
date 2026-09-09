@@ -103,7 +103,7 @@ if (Test-Path $configPath) {
   # Aucune imprimante par défaut : le modèle est choisi par l'utilisateur
   # (section 65), et le host refuse d'imprimer tant qu'elle est vide.
   $config = [ordered]@{
-    printer  = [ordered]@{ name = ''; paperWidth = 80; printableWidth = 72; columns = 42 }
+    printer  = [ordered]@{ name = ''; kind = 'thermal'; paperWidth = 80; printableWidth = 72; columns = 42 }
     printing = [ordered]@{ autoPrint = $false; showPreview = $true; confidenceThreshold = 0.9; allowedDirs = @() }
   }
   $config | ConvertTo-Json -Depth 4 | Set-Content -Path $configPath -Encoding UTF8

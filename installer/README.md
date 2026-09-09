@@ -35,8 +35,10 @@ Puis :
    ```powershell
    & "$env:LOCALAPPDATA\Programs\BooksyReceiptBridge\booksy-receipt-bridge.exe" config set printer.name "EPSON TM-T88V Receipt5"
    ```
-4. « Imprimer un test » dans le popup. Sur la règle du ticket, le dernier
-   chiffre doit tomber en bout de ligne : sinon, corrigez le nombre de colonnes.
+4. Ouvrez un reçu PDF dans un onglet, cliquez « Imprimer » : l'aperçu s'ouvre,
+   vous choisissez l'imprimante et vous validez. Si les montants ne tombent pas
+   en bout de ligne sur le papier, corrigez le nombre de colonnes dans les
+   paramètres.
 
 ## Identifiant de l'extension
 
