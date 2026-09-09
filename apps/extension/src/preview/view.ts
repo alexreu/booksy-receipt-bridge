@@ -57,6 +57,15 @@ export function previewFacts(rendered: RenderedReceipt, label?: string): Preview
  * selected so the common case is one click; when there is none, or it has gone
  * missing, nothing is preselected and the page says to choose.
  */
+/**
+ * Drivers whose queues are not real hardware.
+ *
+ * Named rather than inferred from "anything but windows": the CUPS driver lists
+ * the machine's actual printers, and calling those fake would be the lie this
+ * warning exists to prevent.
+ */
+export const PRETEND_ADAPTERS = ['mock', 'file'];
+
 export interface PrinterChoices {
   options: { value: string; label: string }[];
   selected: string;
@@ -75,7 +84,7 @@ export function printerChoices(
   if (printers.length === 0) {
     return { options, selected: '', note: 'Aucune imprimante détectée sur ce poste.' };
   }
-  if (adapter !== undefined && adapter !== 'windows') {
+  if (adapter !== undefined && PRETEND_ADAPTERS.includes(adapter)) {
     return {
       options,
       selected: known && configured !== undefined ? configured : '',

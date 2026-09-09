@@ -1,6 +1,7 @@
 import type { BridgeConfig, ConfigPatch, Printer } from '@brb/shared';
 import type { HostState } from '../messaging/state.ts';
 import { describeHostState } from '../messaging/state.ts';
+import { PRETEND_ADAPTERS } from '../preview/view.ts';
 
 /**
  * What the options page should show, and what a form submission means.
@@ -47,7 +48,7 @@ function printerNote(
   if (printers.length === 0) {
     return { printerNote: 'Aucune imprimante détectée sur ce poste.' };
   }
-  if (adapter !== undefined && adapter !== 'windows') {
+  if (adapter !== undefined && PRETEND_ADAPTERS.includes(adapter)) {
     return {
       printerNote: `Liste fournie par le pilote « ${adapter} » : ce ne sont pas de vraies imprimantes.`,
     };

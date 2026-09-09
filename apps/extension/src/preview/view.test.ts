@@ -161,6 +161,15 @@ describe('printerChoices', () => {
     expect(choices.selected).toBe('EPSON TM-T88V');
   });
 
+  it('does not call the machine’s real queues fake', () => {
+    // The CUPS driver lists the printers this computer actually has; warning
+    // about them the way the mock driver is warned about would be the lie the
+    // note exists to prevent.
+    const choices = printerChoices(PRINTERS, 'HP LaserJet', 'cups');
+    expect(choices.note).toBe('');
+    expect(choices.selected).toBe('HP LaserJet');
+  });
+
   it('says so when the poste has no printer at all', () => {
     const choices = printerChoices([], 'EPSON TM-T88V', 'windows');
     expect(choices.options).toEqual([]);

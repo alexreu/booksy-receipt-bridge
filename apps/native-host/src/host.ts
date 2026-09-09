@@ -1,4 +1,9 @@
-import { createMockPrinterAdapter, createWindowsPrinterAdapter, type PrinterAdapter } from '@brb/printer';
+import {
+  createCupsPrinterAdapter,
+  createMockPrinterAdapter,
+  createWindowsPrinterAdapter,
+  type PrinterAdapter,
+} from '@brb/printer';
 import { systemClock, type Clock, type NativeResponse } from '@brb/shared';
 import { loadConfig } from './config/config.ts';
 import { createLogger, type Logger } from './logging/logger.ts';
@@ -29,18 +34,22 @@ export interface Host {
 /**
  * Pick the printing implementation.
  *
- * Windows on Windows, mock elsewhere - and `printerAdapter` reports which,
- * because a green tick in the popup backed by a mock would be a lie told to the
- * user's UI. `BRB_PRINTER` forces a choice, which is how the pipeline gets
- * exercised end to end on a machine that has no spooler at all.
+ * Windows on Windows, CUPS on macOS and Linux, mock where neither exists - and
+ * `printerAdapter` reports which, because a green tick in the popup backed by a
+ * mock would be a lie told to the user's UI. `BRB_PRINTER` forces a choice,
+ * which is how the pipeline gets exercised on a machine with no spooler at all.
  */
 function selectPrinter(env: NodeJS.ProcessEnv): { printer: PrinterAdapter; name: string } {
   const forced = env['BRB_PRINTER'];
   if (forced === 'mock') return { printer: createMockPrinterAdapter(), name: 'mock' };
   if (forced === 'windows') return { printer: createWindowsPrinterAdapter(), name: 'windows' };
+  if (forced === 'cups') return { printer: createCupsPrinterAdapter(), name: 'cups' };
 
   if (process.platform === 'win32') {
     return { printer: createWindowsPrinterAdapter(), name: 'windows' };
+  }
+  if (process.platform === 'darwin' || process.platform === 'linux') {
+    return { printer: createCupsPrinterAdapter(), name: 'cups' };
   }
   return { printer: createMockPrinterAdapter(), name: 'mock' };
 }
