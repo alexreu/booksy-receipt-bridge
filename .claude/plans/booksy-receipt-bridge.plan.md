@@ -370,6 +370,65 @@ Quatre choses découvertes en implémentant, à retenir pour les phases suivante
 
 ---
 
+## 19. Phase 13 — la première CI Windows, et la distribution, le 2026-09-09
+
+648 tests, 43 fichiers. Le dépôt passe **public** après audit : aucun `.pem` ni
+clé privée dans l'historique, aucun jeton, et seuls des PDF `.anon` ont jamais
+été committés.
+
+### Ce que le premier passage Windows a trouvé
+
+La matrice `windows-latest` existait depuis la phase 0 et n'avait jamais tourné,
+faute de remote. Poussée pour la première fois, elle est sortie rouge — et ce
+qu'elle a trouvé n'était pas du détail.
+
+| Défaut | Portée réelle |
+|---|---|
+| `join()` finit un chemin par `\`, pdf.js exige une URL finissant par `/` et vérifie ce caractère | **Aucun PDF n'était lisible sous Windows.** `getDocument` levait avant d'avoir lu un octet ; le parseur, l'inspecteur et l'impression tombaient avec. Les chemins passent en URLs `file://`, comme le worker le faisait déjà |
+| `isInside` comparait des chaînes brutes | Un dossier autorisé écrit `C:/Users/x/Downloads` ne correspondait à rien. Les deux côtés sont normalisés |
+| Deux tests écrits en chemins POSIX | Rouges pour de mauvaises raisons ; `/proc/definitely-not-writable` se crée très bien sous Windows. Le test utilise maintenant un dossier **sous un fichier**, impossible partout |
+| Premier `getDocument` au-delà de 5 s à froid | Délai porté à 30 s : la suite finit en trois secondes à chaud, donc le plafond n'attrape plus qu'un vrai blocage |
+
+Trois défauts de production sur une plateforme que le projet vise depuis le
+premier jour, invisibles sur macOS. C'est le retour sur investissement d'une
+matrice à deux systèmes.
+
+### L'extension a un domicile fixe
+
+Chrome retient le **chemin** d'une extension non empaquetée. Chargée depuis le
+dossier décompressé, elle casse le jour où l'utilisateur vide ses
+Téléchargements — et on le découvre devant un client. `Install.ps1` la copie
+sous `%LOCALAPPDATA%\Programs\BooksyReceiptBridge\extension` et annonce ce
+chemin. Une mise à jour réécrit le même dossier, donc rien à recharger à la
+main.
+
+### La distribution est vérifiée de bout en bout
+
+`v0.1.0` taguée : le workflow Windows construit l'exécutable, **vérifie qu'il lit
+un vrai PDF**, assemble l'archive et l'attache à la release —
+`BooksyReceiptBridge-0.1.0.zip`, 38,7 Mo, service + `pdfjs/` + extension +
+`Install.ps1`. Puis le chemin du bouton « Vérifier / Télécharger », exécuté
+contre le vrai GitHub, sans jeton :
+
+```
+{ "latest": "v0.1.0", "available": true,
+  "assetName": "BooksyReceiptBridge-0.1.0.zip", "assetBytes": 38727011 }
+{ "ok": true, "path": "…/BooksyReceiptBridge-0.1.0.zip", "bytes": 38727011 }
+```
+
+Un tag suffit donc à publier, et le poste client se met à jour depuis son popup
+sans compte GitHub.
+
+### Un dépôt vide n'est pas un dépôt absent
+
+`/releases/latest` répond 404 pour un dépôt sans aucune release, exactement
+comme pour un dépôt inexistant. La vérification annonçait donc « dépôt
+introuvable » à quelqu'un dont le dépôt existe — l'état de tout projet avant son
+premier tag. Elle interroge maintenant le dépôt lui-même pour distinguer les
+deux cas.
+
+---
+
 ## 18. Phase 12 — les vraies imprimantes du poste, livrée le 2026-09-09
 
 624 tests, 42 fichiers, quatre portes à exit 0.
