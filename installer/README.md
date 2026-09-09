@@ -26,10 +26,17 @@ c'est délibéré, un poste de caisse contraint n'en donne pas forcément.
 
 Chaque navigateur Chromium reçoit son entrée. Un navigateur absent est ignoré.
 
+L'extension est copiée elle aussi, sous
+`%LOCALAPPDATA%\Programs\BooksyReceiptBridge\extension`. **Chargez-la depuis
+là, pas depuis le dossier décompressé** : Chrome retient le chemin d'une
+extension non empaquetée, et vider ses Téléchargements casserait
+l'installation. Une mise à jour réécrit ce même dossier, donc il n'y a rien à
+recharger à la main.
+
 Puis :
 
-1. `chrome://extensions` → mode développeur → « Charger l'extension non
-   empaquetée » → le dossier `extension`.
+1. `chrome://extensions` (Edge : `edge://extensions`) → mode développeur →
+   « Charger l'extension non empaquetée » → le dossier ci-dessus.
 2. Ouvrez le popup : « Service connecté ».
 3. Paramètres → choisissez l'imprimante. Ou en ligne de commande :
    ```powershell

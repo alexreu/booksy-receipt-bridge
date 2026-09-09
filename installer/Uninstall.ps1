@@ -50,4 +50,11 @@ if ($Purge) {
   Write-Host "  données conservées $DataDir (relancez avec -Purge pour les supprimer)"
 }
 
-Write-Host "`nTerminé.`n"
+Write-Host @"
+
+Terminé.
+
+Le dossier de l'extension partait avec les fichiers : retirez-la aussi du
+navigateur, sur chrome://extensions (Edge : edge://extensions), sinon elle y
+reste affichée comme introuvable.
+"@

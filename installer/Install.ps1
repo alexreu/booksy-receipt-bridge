@@ -60,6 +60,22 @@ Copy-Item $pdfjsSource -Destination $InstallDir -Recurse -Force
 $exePath = Join-Path $InstallDir $ExeName
 Write-Step "exécutable   $exePath"
 
+# L'extension est copiée à un emplacement stable plutôt que chargée depuis le
+# dossier décompressé : Chrome retient le CHEMIN d'une extension non
+# empaquetée, et l'utilisateur qui vide ses Téléchargements casserait
+# l'installation. Ce chemin ne bouge plus, et une mise à jour l'écrase — le
+# navigateur reprend les nouveaux fichiers au redémarrage.
+$extensionSource = Join-Path $Source 'extension'
+$extensionPath   = Join-Path $InstallDir 'extension'
+if (Test-Path (Join-Path $extensionSource 'manifest.json')) {
+  if (Test-Path $extensionPath) { Remove-Item $extensionPath -Recurse -Force }
+  Copy-Item $extensionSource -Destination $extensionPath -Recurse -Force
+  Write-Step "extension    $extensionPath"
+} else {
+  $extensionPath = $null
+  Write-Step "extension    absente de la livraison, rien à copier"
+}
+
 # --- 3. manifest Native Messaging ------------------------------------------
 # allowed_origins liste des origines exactes : jamais de wildcard (section 11).
 $origins = $ExtensionId | ForEach-Object { "chrome-extension://$_/" }
@@ -136,16 +152,29 @@ try {
 
 Copy-Item (Join-Path $PSScriptRoot 'Uninstall.ps1') -Destination $InstallDir -Force -ErrorAction SilentlyContinue
 
+$loadFrom = if ($extensionPath) { $extensionPath } else { '<dossier extension de la livraison>' }
+
 Write-Host @"
 
 Installation terminée.
 
-  1. Chargez l'extension, puis ouvrez son popup : « Service connecté ».
-  2. Choisissez l'imprimante dans Paramètres, ou en ligne de commande :
+  1. Dans Chrome ou Edge, ouvrez la page des extensions :
+       chrome://extensions   (Edge : edge://extensions)
+     Activez le mode développeur, puis « Charger l'extension non empaquetée »
+     et choisissez EXACTEMENT ce dossier :
 
-     & "$exePath" config set printer.name "EPSON TM-T88V Receipt5"
+       $loadFrom
 
-  3. Imprimez un test depuis le popup.
+  2. Ouvrez le popup de l'extension : « Service connecté ».
+  3. Choisissez l'imprimante dans Paramètres, ou en ligne de commande :
+
+       & "$exePath" config set printer.name "EPSON TM-T88V Receipt5"
+
+  4. Ouvrez un reçu PDF dans un onglet et cliquez « Imprimer » : l'aperçu
+     s'ouvre, vous validez.
+
+Une mise à jour réécrit ce même dossier : rien à recharger à la main, le
+navigateur reprend les nouveaux fichiers au redémarrage.
 
 Désinstallation : & "$(Join-Path $InstallDir 'Uninstall.ps1')"
 "@
