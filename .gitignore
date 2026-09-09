@@ -16,3 +16,6 @@ fixtures/booksy/*.pdf
 # Extension signing key -> never committed (it pins the extension ID)
 *.pem
 apps/extension/key.pem
+
+# Notes de travail et plan : utiles au développement, hors du produit livré.
+.claude/
