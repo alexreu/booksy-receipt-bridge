@@ -75,6 +75,20 @@ function headers(token: string | undefined, accept: string): Record<string, stri
   };
 }
 
+/** Does the repository itself answer? Only asked to explain a 404. */
+async function repositoryExists(deps: UpdateDeps): Promise<boolean> {
+  try {
+    const response = await deps.fetch(`https://api.github.com/repos/${deps.repo}`, {
+      headers: headers(deps.token, 'application/vnd.github+json'),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    return response.ok;
+  } catch {
+    // The first request reached GitHub, so a failure here says nothing useful.
+    return false;
+  }
+}
+
 /** Human-readable reason a check could not be made. */
 function describeFailure(status: number, repo: string, hasToken: boolean): string {
   if (status === 404) {
@@ -149,7 +163,14 @@ export async function checkForUpdate(deps: UpdateDeps): Promise<UpdateCheck> {
   }
 
   if (!response.ok) {
-    const error = describeFailure(response.status, deps.repo, hasToken);
+    // A repository with no release answers 404 on this endpoint, exactly like
+    // one that does not exist. Asking about the repository itself is the only
+    // way to tell the two apart, and telling someone their repository is
+    // missing when it is merely empty sends them looking in the wrong place.
+    const error =
+      response.status === 404 && (await repositoryExists(deps))
+        ? `Aucune version publiée sur ${deps.repo} pour l'instant.`
+        : describeFailure(response.status, deps.repo, hasToken);
     deps.log?.(`Vérification de mise à jour refusée : ${error}`);
     return { current: deps.currentVersion, available: false, error };
   }

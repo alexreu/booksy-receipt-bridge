@@ -65,15 +65,18 @@ Le Chrome Web Store et Edge Add-ons attribuent des identifiants différents ;
 Le popup a un bouton « Vérifier ». Il ne part **jamais tout seul** : rien ne
 contacte le réseau sans que vous le demandiez.
 
-Si le dépôt est privé, la vérification a besoin d'un jeton GitHub en lecture
-seule, à poser une fois :
+Le dépôt est public : **aucun jeton n'est nécessaire**. La requête part du
+service, jamais du navigateur, et n'envoie rien d'autre qu'une demande de
+version.
+
+Si le dépôt redevenait privé, il faudrait poser un jeton GitHub en lecture
+seule, une fois :
 
 ```powershell
 & "$env:LOCALAPPDATA\Programs\BooksyReceiptBridge\booksy-receipt-bridge.exe" config set update.token ghp_votrejeton
 ```
 
-Le jeton reste dans un fichier lisible par votre seul compte Windows. Il ne
-passe jamais par le navigateur : c'est le service qui fait la requête.
+Il resterait dans un fichier lisible par le seul compte Windows de l'utilisateur.
 
 « Télécharger » dépose l'archive dans
 `%APPDATA%\BooksyReceiptBridge\updates`. Décompressez-la et relancez

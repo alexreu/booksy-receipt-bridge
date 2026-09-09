@@ -128,6 +128,29 @@ describe('checkForUpdate', () => {
     expect(withToken.error).toContain('jeton');
   });
 
+  it('says a repository is empty rather than missing', async () => {
+    // /releases/latest answers 404 for a repository with no release, exactly
+    // like one that does not exist. Sending someone to look for a missing
+    // repository when theirs is merely empty wastes the one clue they have.
+    const fetch = vi.fn((url: string) =>
+      Promise.resolve(
+        url.endsWith('/releases/latest') ? jsonResponse({}, 404) : jsonResponse({ id: 1 }, 200),
+      ),
+    );
+
+    const check = await checkForUpdate(deps({ fetch }));
+
+    expect(check.error).toContain('Aucune version publiée');
+    expect(check.error).not.toContain('introuvable');
+  });
+
+  it('still says missing when the repository itself is not there', async () => {
+    const check = await checkForUpdate(
+      deps({ fetch: () => Promise.resolve(jsonResponse({}, 404)) }),
+    );
+    expect(check.error).toContain('introuvable');
+  });
+
   it('explains a refused token', async () => {
     const check = await checkForUpdate(
       deps({ fetch: () => Promise.resolve(jsonResponse({}, 401)), token: 'x' }),
