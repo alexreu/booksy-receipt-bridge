@@ -58,7 +58,7 @@ async function render(): Promise<void> {
   element('title').textContent = facts.title;
   element('fact-ticket').textContent = facts.ticket;
   element('fact-confidence').textContent = facts.confidence;
-  element('fact-bytes').textContent = facts.size;
+  element('fact-width').textContent = facts.width;
   element('warnings').textContent = facts.warnings;
   showTicket(response.rendered.content);
 

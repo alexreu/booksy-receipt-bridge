@@ -18,6 +18,15 @@ export interface OptionsView {
   printers: Printer[];
   /** Explains a printer list that is empty or comes from a mock. */
   printerNote?: string;
+  /**
+   * Whether this poste can print to an ordinary printer at all.
+   *
+   * Only the CUPS driver renders a document today; the Windows one speaks RAW
+   * and nothing else. Offering the choice where it cannot work would move the
+   * failure to the moment a receipt matters.
+   */
+  canPrintPaper: boolean;
+  paperNote?: string;
 }
 
 export interface OptionsInput {
@@ -25,6 +34,9 @@ export interface OptionsInput {
   printers?: Printer[];
   adapter?: string;
 }
+
+/** Drivers that can hand the printer a document to render, not just bytes. */
+export const DOCUMENT_ADAPTERS = ['cups'];
 
 export function optionsView(input: OptionsInput): OptionsView {
   const printers = input.printers ?? [];
@@ -36,6 +48,14 @@ export function optionsView(input: OptionsInput): OptionsView {
     editable: connected,
     printers,
     ...printerNote(connected, printers, input.adapter),
+    canPrintPaper: input.adapter === undefined || DOCUMENT_ADAPTERS.includes(input.adapter),
+    ...(input.adapter !== undefined && !DOCUMENT_ADAPTERS.includes(input.adapter)
+      ? {
+          paperNote:
+            'Ce poste n’imprime qu’en thermique : le pilote « ' +
+            `${input.adapter} » envoie les octets tels quels, sans rendu.`,
+        }
+      : {}),
   };
 }
 

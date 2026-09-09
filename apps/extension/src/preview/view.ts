@@ -14,8 +14,8 @@ export interface PreviewFacts {
   title: string;
   ticket: string;
   confidence: string;
-  /** Size of the job that will be sent. */
-  size: string;
+  /** The grid the ticket is laid out on, which is all the page needs to say. */
+  width: string;
   /** Anything worth reading before approving; empty when there is nothing. */
   warnings: string;
   canPrint: boolean;
@@ -38,10 +38,10 @@ export function previewFacts(rendered: RenderedReceipt, label?: string): Preview
     title: label ?? `Ticket n° ${rendered.ticketNumber}`,
     ticket: `n° ${rendered.ticketNumber}`,
     confidence: `${percent} %`,
-    size:
-      rendered.byteCount === undefined
-        ? `${rendered.columns} colonnes`
-        : `${rendered.byteCount} octets, ${rendered.columns} colonnes`,
+    // No byte count: it described the ESC/POS job, and an ordinary printer is
+    // sent a rendered PDF of a quite different size. A number that is right for
+    // one printer and wrong for the other is worse than no number.
+    width: `${rendered.columns} colonnes`,
     warnings: notes.join('\n'),
     // Printable whatever the confidence: a person looking at the ticket is a
     // better judge than a threshold. The threshold gates automatic printing.

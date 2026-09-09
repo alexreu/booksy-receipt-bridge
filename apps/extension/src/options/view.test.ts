@@ -78,6 +78,23 @@ describe('optionsView', () => {
 
 });
 
+describe('optionsView - what this poste can print', () => {
+  it('offers the ordinary-printer mode where the driver can render', () => {
+    const view = optionsView({ state: CONNECTED, printers: [{ name: 'X' }], adapter: 'cups' });
+    expect(view.canPrintPaper).toBe(true);
+    expect(view.paperNote).toBeUndefined();
+  });
+
+  it('refuses it on a driver that only speaks RAW, and says why', () => {
+    // Offering a choice that cannot work moves the failure to the moment a
+    // receipt matters. The Windows driver writes bytes to the spooler and has
+    // no way to hand it a document to render.
+    const view = optionsView({ state: CONNECTED, printers: [{ name: 'X' }], adapter: 'windows' });
+    expect(view.canPrintPaper).toBe(false);
+    expect(view.paperNote).toContain('thermique');
+  });
+});
+
 describe('formValuesOf', () => {
   it('flattens the config into form fields', () => {
     expect(formValuesOf(CONFIG)).toEqual({

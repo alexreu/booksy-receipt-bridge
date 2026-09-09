@@ -32,8 +32,11 @@
           <label for="printer-kind">Type d’imprimante</label>
           <select id="printer-kind">
             <option value="thermal">Thermique (ESC/POS)</option>
-            <option value="paper">Ordinaire — ticket 80 mm sur une feuille A4</option>
+            <option value="paper" id="kind-paper" name="kind-paper">
+              Ordinaire — ticket 80 mm sur une feuille A4
+            </option>
           </select>
+          <p class="note" id="printer-kind-note"></p>
           <p class="note">
             Une imprimante ordinaire ne comprend pas l’ESC/POS : elle en sortirait des
             codes de contrôle. Sur « ordinaire », le même ticket lui est envoyé rendu

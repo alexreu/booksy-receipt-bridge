@@ -61,6 +61,10 @@ function applyView(view: ReturnType<typeof optionsView>): void {
   element<HTMLButtonElement>('save').disabled = !view.editable;
 
   element('printer-note').textContent = view.printerNote ?? '';
+  element('printer-kind-note').textContent = view.paperNote ?? '';
+
+  const paper = element<HTMLSelectElement>('printer-kind').namedItem('kind-paper');
+  if (paper instanceof HTMLOptionElement) paper.disabled = !view.canPrintPaper;
 }
 
 function feedback(message: string): void {

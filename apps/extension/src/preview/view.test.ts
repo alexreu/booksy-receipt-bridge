@@ -23,12 +23,12 @@ function rendered(overrides: Partial<RenderedReceipt> = {}): RenderedReceipt {
 }
 
 describe('previewFacts', () => {
-  it('names the ticket and the size of the job that will be sent', () => {
+  it('names the ticket and the grid it is laid out on', () => {
     const facts = previewFacts(rendered());
     expect(facts.title).toBe('Ticket n° 1167');
     expect(facts.ticket).toBe('n° 1167');
     expect(facts.confidence).toBe('100 %');
-    expect(facts.size).toBe('856 octets, 42 colonnes');
+    expect(facts.width).toBe('42 colonnes');
     expect(facts.warnings).toBe('');
   });
 
@@ -62,9 +62,13 @@ describe('previewFacts', () => {
     expect(CAUTION_CONFIDENCE).toBe(0.9);
   });
 
-  it('falls back when the format carried no byte count', () => {
-    const facts = previewFacts(rendered({ format: 'text', byteCount: undefined }));
-    expect(facts.size).toBe('42 colonnes');
+  it('counts no bytes, since the two printers are sent different jobs', () => {
+    // A thermal printer gets the ESC/POS; an ordinary one gets a rendered PDF
+    // of a quite different size. A number right for one and wrong for the
+    // other is worse than none.
+    const facts = previewFacts(rendered({ byteCount: 856 }));
+    expect(facts.width).toBe('42 colonnes');
+    expect(JSON.stringify(facts)).not.toContain('octets');
   });
 });
 
