@@ -3,14 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { PROTOCOL_VERSION, type StatusData } from '@brb/shared';
-import type { DetectedReceipt } from '../downloads/store.ts';
-import { detectedRows } from './detected.ts';
-import {
-  applyActiveTabPdf,
-  applyDetectedRows,
-  applyPopupView,
-  applyUpdateView,
-} from './dom.ts';
+import { applyActiveTabPdf, applyPopupView, applyUpdateView } from './dom.ts';
 import { popupView } from './render.ts';
 
 /**
@@ -76,11 +69,6 @@ describe('applyPopupView - connected and ready', () => {
     expect(document.getElementById('summary')?.dataset['state']).toBe('connected');
   });
 
-  it('shows the printer name', () => {
-    expect(document.getElementById('printer')?.hidden).toBe(false);
-    expect(text('#printer-name')).toBe('EPSON TM-T88V Receipt5');
-  });
-
   it('renders one checklist row per item, all ticked', () => {
     const rows = [...document.querySelectorAll('#checklist li')];
     expect(rows).toHaveLength(4);
@@ -91,12 +79,6 @@ describe('applyPopupView - connected and ready', () => {
       '✓',
       '✓',
     ]);
-  });
-
-  it('enables the test print', () => {
-    const button = document.getElementById('print-test') as HTMLButtonElement;
-    expect(button.disabled).toBe(false);
-    expect(button.title).toBe('');
   });
 
   it('shows the versions and driver in the footer', () => {
@@ -127,11 +109,6 @@ describe('applyPopupView - connected but incomplete', () => {
     expect(rows.some((row) => row.textContent?.includes('mock'))).toBe(true);
   });
 
-  it('disables the test print and explains why in the tooltip', () => {
-    const button = document.getElementById('print-test') as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-    expect(button.title).toContain('pas encore disponible');
-  });
 });
 
 describe('applyPopupView - unavailable', () => {
@@ -155,13 +132,6 @@ describe('applyPopupView - unavailable', () => {
     expect(text('#footer')).toBe('Specified native messaging host not found.');
   });
 
-  it('hides the printer section rather than showing a dash', () => {
-    expect(document.getElementById('printer')?.hidden).toBe(true);
-  });
-
-  it('leaves the test print disabled', () => {
-    expect((document.getElementById('print-test') as HTMLButtonElement).disabled).toBe(true);
-  });
 });
 
 describe('applyPopupView - the feedback element is left alone', () => {
@@ -201,87 +171,27 @@ describe('applyPopupView - re-render', () => {
   });
 });
 
-function detected(overrides: Partial<DetectedReceipt> = {}): DetectedReceipt {
-  return {
-    downloadId: 42,
-    path: '/Users/x/Downloads/recu-1167.pdf',
-    ticketNumber: '1167',
-    totalTTC: 300,
-    confidence: 1,
-    warningCount: 0,
-    detectedAt: 1_700,
-    reason: 'booksy',
-    ...overrides,
-  };
-}
-
-describe('applyDetectedRows', () => {
-  it('hides the section when nothing was detected', () => {
-    applyDetectedRows(document, []);
-    expect(document.getElementById('detected')?.hidden).toBe(true);
-    expect(document.querySelectorAll('#detected-list li')).toHaveLength(0);
-  });
-
-  it('shows a row per receipt with its actions', () => {
-    applyDetectedRows(document, detectedRows([detected()]));
-    expect(document.getElementById('detected')?.hidden).toBe(false);
-
-    const row = document.querySelector('#detected-list li');
-    expect(row?.querySelector('.label')?.textContent).toBe('Ticket n° 1167 · 300,00 €');
-    expect(
-      [...(row?.querySelectorAll('button') ?? [])].map((b) => b.dataset['action']),
-    ).toEqual(['print-detected', 'dismiss-detected']);
-  });
-
-  it('carries the download id on the buttons, not a path', () => {
-    // One delegated listener reads these; inline handlers are forbidden by the
-    // manifest V3 content security policy.
-    applyDetectedRows(document, detectedRows([detected({ downloadId: 7 })]));
-    const button = document.querySelector<HTMLButtonElement>('#detected-list button');
-    expect(button?.dataset['downloadId']).toBe('7');
-    expect(document.getElementById('detected-list')?.innerHTML).not.toContain('/Downloads/');
-  });
-
-  it('offers the same two actions on every row', () => {
-    // No printed state to render: a printed receipt leaves the list, so the
-    // popup shows pending work rather than a log to tidy.
-    applyDetectedRows(document, detectedRows([detected(), detected({ downloadId: 43 })]));
-    const rows = [...document.querySelectorAll('#detected-list li')];
-    expect(rows).toHaveLength(2);
-    for (const row of rows) {
-      expect(
-        [...row.querySelectorAll<HTMLButtonElement>('button')].map((b) => b.dataset['action']),
-      ).toEqual(['print-detected', 'dismiss-detected']);
-    }
-  });
-
-  it('shows the caution alongside the detail', () => {
-    applyDetectedRows(document, detectedRows([detected({ confidence: 0.5 })]));
-    expect(document.querySelector('#detected-list .detail')?.textContent).toContain('50 %');
-  });
-
-  it('replaces the list rather than appending to it', () => {
-    applyDetectedRows(document, detectedRows([detected()]));
-    applyDetectedRows(document, detectedRows([detected()]));
-    expect(document.querySelectorAll('#detected-list li')).toHaveLength(1);
-  });
-
-  it('is not blanked by a host state re-render', () => {
-    // The list comes from session storage, not from the host state, and the
-    // popup refreshes the two independently.
-    applyDetectedRows(document, detectedRows([detected()]));
-    applyPopupView(document, popupView({ kind: 'connected', version: '1.4.0', status: status() }));
-    expect(document.querySelectorAll('#detected-list li')).toHaveLength(1);
-    expect(document.getElementById('detected')?.hidden).toBe(false);
-  });
-});
-
 describe('applyActiveTabPdf', () => {
   const PDF = { name: 'recu-1167.pdf', url: 'https://booksy.com/recu/1167.pdf' };
 
-  it('hides the section when the tab is not a PDF', () => {
+  it('keeps the print button in sight even with no PDF, and says why', () => {
+    // Hiding it left the popup showing only "Imprimer un test", which reads as
+    // if printing a receipt were not what this extension does.
     applyActiveTabPdf(document, null, true);
-    expect(document.getElementById('tab-pdf')?.hidden).toBe(true);
+    const section = document.getElementById('tab-pdf');
+    const button = document.getElementById('print-tab') as HTMLButtonElement;
+    expect(section?.hidden).toBe(false);
+    expect(section?.textContent).toContain('Ouvrez le reçu PDF');
+    expect(button.disabled).toBe(true);
+    expect(button.title).toContain('PDF');
+  });
+
+  it('labels the action Imprimer, not Imprimer un test', () => {
+    // The two were confusable in the popup, and only one of them prints the
+    // receipt the user is looking at.
+    const print = document.getElementById('print-tab') as HTMLButtonElement;
+    expect(print.textContent).toContain('Imprimer');
+    expect(print.textContent).not.toContain('test');
   });
 
   it('names the document so the user sees which one is meant', () => {
@@ -291,11 +201,13 @@ describe('applyActiveTabPdf', () => {
     expect((document.getElementById('print-tab') as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('greys the button with a reason when no printer is set up', () => {
+  it('greys the button with a reason when the service is down', () => {
+    // The only thing that can stop it now: the printer itself is chosen in the
+    // preview, so a poste with no default printer can still print.
     applyActiveTabPdf(document, PDF, false);
     const button = document.getElementById('print-tab') as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    expect(button.title).toContain('imprimante');
+    expect(button.title).toContain('service');
   });
 
   it('shows the URL nowhere, only the name', () => {
@@ -309,21 +221,34 @@ describe('applyActiveTabPdf', () => {
     expect(document.getElementById('tab-pdf')?.hidden).toBe(false);
   });
 
-  it('points at the download route when the tab cannot be read', () => {
+  it('names the one action that helps when the tab cannot be read', () => {
     // Worded without blaming the user: telling someone who just clicked the
-    // toolbar icon to click the toolbar icon is worse than saying nothing, and
-    // the download route needs no tab access at all.
+    // toolbar icon to click the toolbar icon is worse than saying nothing.
+    // Reloading the page is what re-establishes the grant.
     applyActiveTabPdf(document, null, true, 'no-permission');
     const section = document.getElementById('tab-pdf');
     expect(section?.hidden).toBe(false);
-    expect(section?.textContent).toContain('Téléchargez le reçu');
+    expect(section?.textContent).toContain('Rechargez');
     expect(section?.textContent).not.toContain('icône');
     expect((document.getElementById('print-tab') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('stays hidden for a tab that simply is not a PDF', () => {
+  it('greys the button for a tab that simply is not a PDF', () => {
     applyActiveTabPdf(document, null, true, 'not-a-pdf');
-    expect(document.getElementById('tab-pdf')?.hidden).toBe(true);
+    const button = document.getElementById('print-tab') as HTMLButtonElement;
+    expect(document.getElementById('tab-pdf')?.hidden).toBe(false);
+    expect(button.disabled).toBe(true);
+  });
+
+  it('re-enables the button once a PDF is in the tab again', () => {
+    // Regression: the disabled state and the message both have to be undone,
+    // or the popup keeps saying to open a PDF over the name of the one open.
+    applyActiveTabPdf(document, null, true, 'not-a-pdf');
+    applyActiveTabPdf(document, PDF, true);
+    const button = document.getElementById('print-tab') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(button.title).toBe('');
+    expect(document.getElementById('tab-pdf-name')?.textContent).toBe('recu-1167.pdf');
   });
 });
 

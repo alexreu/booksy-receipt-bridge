@@ -53,16 +53,11 @@ describe('extension manifest', () => {
   });
 
   it('declares only the permissions the code uses', () => {
-    // Plan section 41. `downloads` for the finished-download watcher,
-    // `storage` for the detected receipts, and `activeTab` to read and fetch
-    // the PDF the user is looking at - granted per click, so no site is listed
-    // in host_permissions at all.
-    expect(manifest.permissions).toEqual([
-      'nativeMessaging',
-      'storage',
-      'downloads',
-      'activeTab',
-    ]);
+    // Plan section 41. `storage` for the receipt awaiting approval, and
+    // `activeTab` to read and fetch the PDF the user is looking at - granted
+    // per click, so no site is listed in host_permissions at all. Nothing is
+    // downloaded, so there is no `downloads` permission to ask for.
+    expect(manifest.permissions).toEqual(['nativeMessaging', 'storage', 'activeTab']);
   });
 
   it('requests no host permissions yet, and never a wildcard', () => {

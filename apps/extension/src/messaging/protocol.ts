@@ -1,13 +1,12 @@
 import type {
   BridgeConfig,
+  RenderedReceipt,
   UpdateCheck,
   UpdateDownload,
   ConfigPatch,
   Printer,
   PrintReceiptData,
-  PrintTestData,
 } from '@brb/shared';
-import type { DetectedReceipt } from '../downloads/store.ts';
 import type { HostState } from './state.ts';
 
 /**
@@ -26,6 +25,14 @@ export interface ActiveTabPdf {
   url: string;
 }
 
+/**
+ * Where a preview's bytes come from.
+ *
+ * One case, and it carries no address: the worker reads the active tab itself.
+ * Nothing a caller sends names the document that will be printed.
+ */
+export type PreviewSource = { kind: 'activeTab' };
+
 export type ExtensionRequest =
   | { kind: 'GET_HOST_STATE' }
   | { kind: 'GET_ACTIVE_TAB' }
@@ -33,18 +40,6 @@ export type ExtensionRequest =
   | { kind: 'LIST_PRINTERS' }
   | { kind: 'GET_CONFIG' }
   | { kind: 'SET_CONFIG'; patch: ConfigPatch }
-  | { kind: 'PRINT_TEST' }
-  | { kind: 'LIST_DETECTED' }
-  | { kind: 'PRINT_DETECTED'; downloadId: number }
-  | { kind: 'DISMISS_DETECTED'; downloadId: number }
-  /**
-   * Print the PDF the active tab is showing.
-   *
-   * Carries NO url. The worker resolves the active tab itself, so there is no
-   * address from a caller to validate and nothing a page could nominate. The
-   * native host still has to recognise the document as a Booksy receipt.
-   */
-  | { kind: 'PRINT_ACTIVE_TAB' }
   /**
    * Look for a newer release, and fetch it.
    *
@@ -52,18 +47,28 @@ export type ExtensionRequest =
    * network, and AC19 means that must never happen without the user asking.
    */
   | { kind: 'CHECK_UPDATE' }
-  | { kind: 'DOWNLOAD_UPDATE' };
+  | { kind: 'DOWNLOAD_UPDATE' }
+  /**
+   * Capture a receipt for approval, then render and print the captured bytes.
+   *
+   * The caller names a source once; afterwards it only ever passes the id back.
+   * What was previewed is therefore exactly what is printed.
+   */
+  | { kind: 'PREPARE_PREVIEW'; source: PreviewSource }
+  | { kind: 'RENDER_PREVIEW'; id: string }
+  | { kind: 'PRINT_PREVIEW'; id: string; printerName?: string }
+  | { kind: 'DISCARD_PREVIEW'; id: string };
 
 export type ExtensionResponse =
   | { kind: 'HOST_STATE'; state: HostState }
   | { kind: 'PRINTERS'; printers: Printer[]; adapter: string }
   | { kind: 'CONFIG'; config: BridgeConfig; present: boolean; error?: string }
-  | { kind: 'PRINTED'; data: PrintTestData }
   | { kind: 'PRINTED_RECEIPT'; data: PrintReceiptData }
   | { kind: 'ACTIVE_TAB'; pdf: ActiveTabPdf | null; reason?: string }
+  | { kind: 'PREVIEW_READY'; id: string; label?: string }
+  | { kind: 'PREVIEW'; rendered: RenderedReceipt; label?: string }
   | { kind: 'UPDATE'; check: UpdateCheck }
   | { kind: 'UPDATE_DOWNLOADED'; download: UpdateDownload }
-  | { kind: 'DETECTED'; receipts: DetectedReceipt[] }
   | { kind: 'ERROR'; message: string };
 
 /**
@@ -75,22 +80,41 @@ export type ExtensionResponse =
  */
 export const WRITING_KINDS: ExtensionRequest['kind'][] = [
   'SET_CONFIG',
-  'PRINT_TEST',
-  'PRINT_DETECTED',
-  'DISMISS_DETECTED',
-  'PRINT_ACTIVE_TAB',
   'CHECK_UPDATE',
   'DOWNLOAD_UPDATE',
+  'PREPARE_PREVIEW',
+  'PRINT_PREVIEW',
 ];
 
-const READING_KINDS: ExtensionRequest['kind'][] = [
+/**
+ * Intents a page's content script may send - the ALLOWLIST.
+ *
+ * Default-deny, so an intent added later is refused to pages until it is
+ * listed here on purpose. The earlier rule was a denylist, which silently
+ * granted every new intent to any page.
+ *
+ * These carry no argument and reveal nothing a page does not already know:
+ * whether the service is up, what it can do, which printers exist.
+ */
+export const PAGE_ALLOWED_KINDS: ExtensionRequest['kind'][] = [
   'GET_HOST_STATE',
   'GET_ACTIVE_TAB',
   'PING_HOST',
   'LIST_PRINTERS',
   'GET_CONFIG',
-  'LIST_DETECTED',
 ];
+
+/** Bare intents: no payload to validate. */
+const BARE_KINDS: ExtensionRequest['kind'][] = [
+  ...PAGE_ALLOWED_KINDS,
+  'CHECK_UPDATE',
+  'DOWNLOAD_UPDATE',
+];
+
+function parsePreviewSource(raw: unknown): PreviewSource | undefined {
+  if (!isPlainObject(raw)) return undefined;
+  return raw['kind'] === 'activeTab' ? { kind: 'activeTab' } : undefined;
+}
 
 /** Validate an inbound internal message; the worker trusts nothing by shape. */
 export function parseExtensionRequest(raw: unknown): ExtensionRequest | undefined {
@@ -99,23 +123,25 @@ export function parseExtensionRequest(raw: unknown): ExtensionRequest | undefine
   const kind = record['kind'];
   if (typeof kind !== 'string') return undefined;
 
-  if (READING_KINDS.includes(kind as ExtensionRequest['kind'])) {
+  if (BARE_KINDS.includes(kind as ExtensionRequest['kind'])) {
     return { kind } as ExtensionRequest;
   }
-  if (kind === 'PRINT_TEST') return { kind };
   if (kind === 'SET_CONFIG') {
     const patch = parseConfigPatch(record['patch']);
     return patch === undefined ? undefined : { kind, patch };
   }
-  if (kind === 'PRINT_ACTIVE_TAB' || kind === 'CHECK_UPDATE' || kind === 'DOWNLOAD_UPDATE') {
-    return { kind };
+  if (kind === 'PREPARE_PREVIEW') {
+    const source = parsePreviewSource(record['source']);
+    return source === undefined ? undefined : { kind, source };
   }
-  if (kind === 'PRINT_DETECTED' || kind === 'DISMISS_DETECTED') {
-    const downloadId = record['downloadId'];
-    // An id, not a path: the caller names a receipt the worker already found,
-    // so nothing in a page can nominate a file to open.
-    if (typeof downloadId !== 'number' || !Number.isInteger(downloadId)) return undefined;
-    return { kind, downloadId };
+  if (kind === 'RENDER_PREVIEW' || kind === 'DISCARD_PREVIEW' || kind === 'PRINT_PREVIEW') {
+    const id = record['id'];
+    if (typeof id !== 'string' || id === '') return undefined;
+    if (kind !== 'PRINT_PREVIEW') return { kind, id };
+
+    const printerName = record['printerName'];
+    if (printerName !== undefined && typeof printerName !== 'string') return undefined;
+    return { kind, id, ...(printerName === undefined ? {} : { printerName }) };
   }
   return undefined;
 }

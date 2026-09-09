@@ -27,9 +27,6 @@ function readForm(): FormValues {
     paperWidth: element<HTMLInputElement>('paper-width').valueAsNumber,
     printableWidth: element<HTMLInputElement>('printable-width').valueAsNumber,
     columns: element<HTMLInputElement>('columns').valueAsNumber,
-    showPreview: element<HTMLInputElement>('show-preview').checked,
-    autoPrint: element<HTMLInputElement>('auto-print').checked,
-    confidenceThreshold: element<HTMLInputElement>('threshold').valueAsNumber,
   };
 }
 
@@ -50,9 +47,6 @@ function writeForm(values: FormValues, printers: readonly Printer[]): void {
   element<HTMLInputElement>('paper-width').valueAsNumber = values.paperWidth;
   element<HTMLInputElement>('printable-width').valueAsNumber = values.printableWidth;
   element<HTMLInputElement>('columns').valueAsNumber = values.columns;
-  element<HTMLInputElement>('show-preview').checked = values.showPreview;
-  element<HTMLInputElement>('auto-print').checked = values.autoPrint;
-  element<HTMLInputElement>('threshold').valueAsNumber = values.confidenceThreshold;
 }
 
 function applyView(view: ReturnType<typeof optionsView>): void {
@@ -61,12 +55,9 @@ function applyView(view: ReturnType<typeof optionsView>): void {
   status.dataset['state'] = view.state;
 
   element<HTMLFieldSetElement>('fields').disabled = !view.editable;
-  element<HTMLFieldSetElement>('printing-fields').disabled = !view.editable;
   element<HTMLButtonElement>('save').disabled = !view.editable;
 
   element('printer-note').textContent = view.printerNote ?? '';
-  element('auto-print-note').textContent = view.autoPrintNote ?? '';
-  element<HTMLInputElement>('auto-print').disabled = !view.canAutoPrint;
 }
 
 function feedback(message: string): void {

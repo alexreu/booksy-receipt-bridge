@@ -19,16 +19,11 @@ describe('options markup', () => {
       'status',
       'form',
       'fields',
-      'printing-fields',
       'printer',
       'printer-note',
       'paper-width',
       'printable-width',
       'columns',
-      'show-preview',
-      'auto-print',
-      'auto-print-note',
-      'threshold',
       'save',
       'reload',
       'feedback',
@@ -47,12 +42,7 @@ describe('options markup', () => {
 
   it('starts with the fields locked, before the host has answered', () => {
     expect((document.getElementById('fields') as HTMLFieldSetElement).disabled).toBe(true);
-    expect((document.getElementById('printing-fields') as HTMLFieldSetElement).disabled).toBe(true);
     expect((document.getElementById('save') as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('starts with auto-print off, since nothing implements it yet', () => {
-    expect((document.getElementById('auto-print') as HTMLInputElement).disabled).toBe(true);
   });
 
   it('loads no remote resource - manifest V3 CSP', () => {

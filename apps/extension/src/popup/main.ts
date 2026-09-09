@@ -7,8 +7,7 @@
  */
 import type { ExtensionRequest, ExtensionResponse } from '../messaging/protocol.ts';
 import type { HostState } from '../messaging/state.ts';
-import { detectedRows } from './detected.ts';
-import { applyActiveTabPdf, applyDetectedRows, applyPopupView, applyUpdateView } from './dom.ts';
+import { applyActiveTabPdf, applyPopupView, applyUpdateView } from './dom.ts';
 import { popupView } from './render.ts';
 import { downloadedView, updateView } from './update.ts';
 
@@ -45,11 +44,11 @@ function setFeedback(message: string): void {
 /**
  * Whether printing is possible at all right now.
  *
- * Read from the host rather than assumed: offering a button that cannot work is
- * worse than showing it greyed with the reason.
+ * A connected service is the whole condition: the printer is chosen in the
+ * preview, so a poste with no default printer can still print.
  */
 function canPrint(state: HostState): boolean {
-  return state.kind === 'connected' && state.status.printerConfigured;
+  return state.kind === 'connected';
 }
 
 async function refreshActiveTab(state?: HostState): Promise<void> {
@@ -63,93 +62,26 @@ async function refreshActiveTab(state?: HostState): Promise<void> {
 async function printActiveTab(): Promise<void> {
   const button = document.getElementById('print-tab') as HTMLButtonElement | null;
   if (button !== null) button.disabled = true;
-  setFeedback('Impression…');
 
-  const response = await ask({ kind: 'PRINT_ACTIVE_TAB' });
-  if (response.kind === 'PRINTED_RECEIPT') {
-    const { ticketNumber, duplicate, warnings } = response.data;
-    setFeedback(
-      duplicate === true
-        ? `Ticket ${ticketNumber} déjà imprimé à l’instant, rien envoyé.`
-        : warnings.length === 0
-          ? `Ticket ${ticketNumber} imprimé.`
-          : `Ticket ${ticketNumber} imprimé, ${warnings.length} anomalie(s) signalée(s).`,
-    );
-  } else {
-    setFeedback(response.kind === 'ERROR' ? response.message : 'Réponse inattendue.');
-  }
+  setFeedback('Préparation de l’aperçu…');
+  const response = await ask({ kind: 'PREPARE_PREVIEW', source: { kind: 'activeTab' } });
+  setFeedback(
+    response.kind === 'PREVIEW_READY'
+      ? 'Aperçu ouvert dans un onglet.'
+      : response.kind === 'ERROR'
+        ? response.message
+        : 'Aperçu indisponible.',
+  );
   await refreshActiveTab();
-}
-
-async function refreshDetected(): Promise<void> {
-  const response = await ask({ kind: 'LIST_DETECTED' });
-  if (response.kind === 'DETECTED') {
-    applyDetectedRows(document, detectedRows(response.receipts));
-  }
 }
 
 async function refresh(): Promise<void> {
   setFeedback('');
   applyPopupView(document, popupView({ kind: 'checking' }));
-  // Both, in parallel: the downloaded-receipt list has its own source and does
-  // not depend on the host state resolving first.
-  await Promise.all([
-    // One host round trip feeds both the checklist and the tab section.
-    hostState().then(async (state) => {
-      applyPopupView(document, popupView(state));
-      await refreshActiveTab(state);
-    }),
-    refreshDetected(),
-  ]);
-}
-
-async function printDetected(downloadId: number): Promise<void> {
-  setFeedback('Impression…');
-  const response = await ask({ kind: 'PRINT_DETECTED', downloadId });
-
-  if (response.kind === 'PRINTED_RECEIPT') {
-    const { ticketNumber, duplicate, warnings } = response.data;
-    setFeedback(
-      duplicate === true
-        ? `Ticket ${ticketNumber} déjà imprimé à l’instant, rien envoyé.`
-        : warnings.length === 0
-          ? `Ticket ${ticketNumber} imprimé.`
-          : `Ticket ${ticketNumber} imprimé, ${warnings.length} anomalie(s) signalée(s).`,
-    );
-  } else {
-    setFeedback(response.kind === 'ERROR' ? response.message : 'Réponse inattendue.');
-  }
-  await refreshDetected();
-}
-
-async function dismissDetected(downloadId: number): Promise<void> {
-  const response = await ask({ kind: 'DISMISS_DETECTED', downloadId });
-  if (response.kind === 'DETECTED') {
-    applyDetectedRows(document, detectedRows(response.receipts));
-  }
-}
-
-async function printTest(): Promise<void> {
-  const button = document.getElementById('print-test') as HTMLButtonElement | null;
-  if (button !== null) button.disabled = true;
-  setFeedback('Envoi du ticket de test…');
-
-  const response = await ask({ kind: 'PRINT_TEST' });
-  if (response.kind === 'PRINTED') {
-    const substituted = response.data.unmapped ?? [];
-    setFeedback(
-      substituted.length === 0
-        ? 'Ticket de test envoyé.'
-        : `Ticket de test envoyé. Caractères remplacés : ${substituted.join(' ')}`,
-    );
-  } else {
-    setFeedback(response.kind === 'ERROR' ? response.message : 'Réponse inattendue.');
-  }
-
-  // Re-read the state rather than guess: a failed print may mean the printer
-  // has gone, and the checklist should say so. This must not clobber the
-  // message above, which is why it lives in its own element.
-  applyPopupView(document, popupView(await hostState()));
+  // One host round trip feeds both the checklist and the tab section.
+  const state = await hostState();
+  applyPopupView(document, popupView(state));
+  await refreshActiveTab(state);
 }
 
 /**
@@ -192,9 +124,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('retry')?.addEventListener('click', () => {
     void refresh();
   });
-  document.getElementById('print-test')?.addEventListener('click', () => {
-    void printTest();
-  });
   document.getElementById('print-tab')?.addEventListener('click', () => {
     void printActiveTab();
   });
@@ -206,18 +135,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('settings')?.addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
-  });
-
-  // One delegated listener: the rows are rebuilt on every refresh, and inline
-  // handlers are forbidden by the manifest V3 content security policy.
-  document.getElementById('detected-list')?.addEventListener('click', (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLButtonElement)) return;
-    const downloadId = Number(target.dataset['downloadId']);
-    if (!Number.isInteger(downloadId)) return;
-
-    if (target.dataset['action'] === 'print-detected') void printDetected(downloadId);
-    if (target.dataset['action'] === 'dismiss-detected') void dismissDetected(downloadId);
   });
 
   void refresh();

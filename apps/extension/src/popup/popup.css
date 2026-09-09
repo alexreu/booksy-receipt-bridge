@@ -120,55 +120,6 @@ h2 {
   width: 100%;
 }
 
-.detected {
-  margin: 0 0 12px;
-}
-
-.detected ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.detected li {
-  padding: 7px 0;
-  border-top: 1px solid var(--border);
-}
-
-.detected li:first-child {
-  border-top: 0;
-}
-
-.detected .label {
-  font-weight: 500;
-}
-
-.detected .detail {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.detected .row-actions {
-  display: flex;
-  gap: 6px;
-  margin-top: 5px;
-}
-
-.detected .row-actions button {
-  flex: 0 0 auto;
-  padding: 3px 9px;
-  font-size: 12px;
-}
-
-.printer {
-  margin: 0 0 12px;
-}
-
-.printer p {
-  margin: 0;
-  font-variant-numeric: tabular-nums;
-}
-
 .actions {
   display: flex;
   gap: 6px;

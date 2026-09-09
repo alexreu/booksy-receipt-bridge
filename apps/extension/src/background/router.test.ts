@@ -8,7 +8,7 @@ import {
   type StatusData,
 } from '@brb/shared';
 import { createMockNativeHostClient } from '../messaging/mock-client.ts';
-import { STORAGE_KEY, type DetectedReceipt } from '../downloads/store.ts';
+import { PENDING_KEY } from '../preview/pending.ts';
 import { handleExtensionMessage, type RouterDeps } from './router.ts';
 
 const EXTENSION_ID = 'ndfcmfgnelpdjgpmaelpdgoccmjcpdjm';
@@ -190,21 +190,25 @@ describe('handleExtensionMessage - a content script gets read-only access', () =
     expect(client.sent).toEqual([]);
   });
 
-  it('refuses PRINT_TEST', async () => {
-    const client = createMockNativeHostClient({ replies: { PRINT_TEST: {} } });
-    const response = await handleExtensionMessage({ kind: 'PRINT_TEST' }, fromTab, deps({ client }));
+  it('refuses to start a print job', async () => {
+    const client = createMockNativeHostClient();
+    const response = await handleExtensionMessage(
+      { kind: 'PREPARE_PREVIEW', source: { kind: 'activeTab' } },
+      fromTab,
+      deps({ client, fetchActiveTab: () => Promise.resolve(new Uint8Array([1])) }),
+    );
     expect(response.kind).toBe('ERROR');
     expect(client.sent).toEqual([]);
   });
 
   it('allows those same intents from an extension page', async () => {
-    const client = createMockNativeHostClient({ replies: { PRINT_TEST: { bytesSent: 700 } } });
+    const client = createMockNativeHostClient({ replies: { SET_CONFIG: CONFIG } });
     const response = await handleExtensionMessage(
-      { kind: 'PRINT_TEST' },
+      { kind: 'SET_CONFIG', patch: { printer: { name: 'Autre' } } },
       { id: EXTENSION_ID, origin: `chrome-extension://${EXTENSION_ID}` },
       deps({ client }),
     );
-    expect(response).toEqual({ kind: 'PRINTED', data: { bytesSent: 700 } });
+    expect(response.kind).toBe('CONFIG');
   });
 
   it('allows an extension page that is open in a tab', async () => {
@@ -224,19 +228,19 @@ describe('handleExtensionMessage - a content script gets read-only access', () =
   });
 
   it('falls back to the page URL when Chrome omits the origin', async () => {
-    const client = createMockNativeHostClient({ replies: { PRINT_TEST: {} } });
+    const client = createMockNativeHostClient({ replies: { SET_CONFIG: CONFIG } });
     const response = await handleExtensionMessage(
-      { kind: 'PRINT_TEST' },
+      { kind: 'SET_CONFIG', patch: { printer: { name: 'Autre' } } },
       { id: EXTENSION_ID, url: `chrome-extension://${EXTENSION_ID}/popup/index.html` },
       deps({ client }),
     );
-    expect(response.kind).toBe('PRINTED');
+    expect(response.kind).toBe('CONFIG');
   });
 
   it('refuses a page whose origin merely starts like ours', async () => {
-    const client = createMockNativeHostClient({ replies: { PRINT_TEST: {} } });
+    const client = createMockNativeHostClient({ replies: { SET_CONFIG: CONFIG } });
     const response = await handleExtensionMessage(
-      { kind: 'PRINT_TEST' },
+      { kind: 'SET_CONFIG', patch: { printer: { name: 'Autre' } } },
       { id: EXTENSION_ID, origin: `chrome-extension://${EXTENSION_ID}evil` },
       deps({ client }),
     );
@@ -313,172 +317,9 @@ describe('handleExtensionMessage - configuration', () => {
   });
 });
 
-describe('handleExtensionMessage - PRINT_TEST', () => {
-  it('reports the substituted characters so they can be shown', async () => {
-    const client = createMockNativeHostClient({
-      replies: { PRINT_TEST: { bytesSent: 766, unmapped: ['’', 'œ'] } },
-    });
-    const response = await handleExtensionMessage(
-      { kind: 'PRINT_TEST' },
-      { id: EXTENSION_ID },
-      deps({ client }),
-    );
-    expect(response).toEqual({
-      kind: 'PRINTED',
-      data: { bytesSent: 766, unmapped: ['’', 'œ'] },
-    });
-  });
-
-  it('reports a print failure as an error', async () => {
-    const client = createMockNativeHostClient();
-    const response = await handleExtensionMessage(
-      { kind: 'PRINT_TEST' },
-      { id: EXTENSION_ID },
-      deps({ client }),
-    );
-    expect(response.kind).toBe('ERROR');
-  });
-});
-
-const DETECTED: DetectedReceipt = {
-  downloadId: 42,
-  path: '/Users/x/Downloads/recu-1167.pdf',
-  ticketNumber: '1167',
-  totalTTC: 300,
-  confidence: 1,
-  warningCount: 0,
-  detectedAt: 1_700,
-  reason: 'booksy',
-};
-
-describe('handleExtensionMessage - detected receipts', () => {
-  const fromPage = { id: EXTENSION_ID, origin: `chrome-extension://${EXTENSION_ID}` };
-
-  it('lists what the worker recorded', async () => {
-    const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
-    const response = await handleExtensionMessage(
-      { kind: 'LIST_DETECTED' },
-      fromPage,
-      deps({ storage }),
-    );
-    expect(response).toEqual({ kind: 'DETECTED', receipts: [DETECTED] });
-  });
-
-  it('prints by download id, using the path the worker itself stored', async () => {
-    // The caller never supplies a path, so nothing in a page can nominate a
-    // file for the host to open.
-    const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
-    const client = createMockNativeHostClient({
-      replies: {
-        PRINT_RECEIPT: { ticketNumber: '1167', confidence: 1, warnings: [], bytesSent: 800 },
-      },
-    });
-
-    const response = await handleExtensionMessage(
-      { kind: 'PRINT_DETECTED', downloadId: 42 },
-      fromPage,
-      deps({ storage, client }),
-    );
-
-    expect(response).toMatchObject({ kind: 'PRINTED_RECEIPT', data: { ticketNumber: '1167' } });
-    expect(client.lastSent).toMatchObject({
-      type: 'PRINT_RECEIPT',
-      payload: {
-        source: { kind: 'path', path: '/Users/x/Downloads/recu-1167.pdf' },
-        trigger: 'user',
-      },
-    });
-  });
-
-  it('removes it from the list once printed, rather than logging it', async () => {
-    const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
-    const client = createMockNativeHostClient({
-      replies: { PRINT_RECEIPT: { ticketNumber: '1167', confidence: 1, warnings: [] } },
-    });
-    const setBadge = vi.fn();
-
-    await handleExtensionMessage(
-      { kind: 'PRINT_DETECTED', downloadId: 42 },
-      fromPage,
-      deps({ storage, client, setBadge }),
-    );
-
-    // Nothing left to do with the entry, and the host's own window is what
-    // stops a second print of the same receipt.
-    expect(storage.snapshot()[STORAGE_KEY]).toEqual([]);
-    expect(setBadge).toHaveBeenCalledWith(0);
-  });
-
-  it('refuses an id it never recorded', async () => {
-    const client = createMockNativeHostClient();
-    const response = await handleExtensionMessage(
-      { kind: 'PRINT_DETECTED', downloadId: 999 },
-      fromPage,
-      deps({ client }),
-    );
-    expect(response).toMatchObject({ kind: 'ERROR' });
-    expect(client.sent).toEqual([]);
-  });
-
-  it('keeps it on the list when the print failed', async () => {
-    const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
-    const client = createMockNativeHostClient({
-      failWith: { code: 'PRINTER_OFFLINE', message: 'imprimante hors ligne' },
-    });
-
-    const response = await handleExtensionMessage(
-      { kind: 'PRINT_DETECTED', downloadId: 42 },
-      fromPage,
-      deps({ storage, client }),
-    );
-    expect(response).toEqual({ kind: 'ERROR', message: 'imprimante hors ligne' });
-    const stored = storage.snapshot()[STORAGE_KEY] as DetectedReceipt[] | undefined;
-    expect(stored?.map((entry) => entry.downloadId)).toEqual([42]);
-  });
-
-  it('dismisses an entry and updates the badge', async () => {
-    const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
-    const setBadge = vi.fn();
-    const response = await handleExtensionMessage(
-      { kind: 'DISMISS_DETECTED', downloadId: 42 },
-      fromPage,
-      deps({ storage, setBadge }),
-    );
-    expect(response).toEqual({ kind: 'DETECTED', receipts: [] });
-    expect(setBadge).toHaveBeenCalledWith(0);
-  });
-
-  it('refuses printing and dismissing from a content script', async () => {
-    const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
-    const client = createMockNativeHostClient();
-    const fromTab = { id: EXTENSION_ID, origin: 'https://booksy.com' };
-
-    for (const kind of ['PRINT_DETECTED', 'DISMISS_DETECTED'] as const) {
-      const response = await handleExtensionMessage(
-        { kind, downloadId: 42 },
-        fromTab,
-        deps({ storage, client }),
-      );
-      expect(response.kind).toBe('ERROR');
-    }
-    expect(client.sent).toEqual([]);
-  });
-
-  it('lets a content script ask what was detected', async () => {
-    const storage = memoryStorage({ [STORAGE_KEY]: [DETECTED] });
-    const response = await handleExtensionMessage(
-      { kind: 'LIST_DETECTED' },
-      { id: EXTENSION_ID, origin: 'https://booksy.com' },
-      deps({ storage }),
-    );
-    expect(response.kind).toBe('DETECTED');
-  });
-});
-
 describe('handleExtensionMessage - the PDF in the active tab', () => {
   const fromPage = { id: EXTENSION_ID, origin: `chrome-extension://${EXTENSION_ID}` };
   const PDF = { name: 'recu-1167.pdf', url: 'https://booksy.com/recu/1167.pdf' };
-  const BYTES = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34]);
 
   it('reports what the tab is showing', async () => {
     const response = await handleExtensionMessage(
@@ -510,54 +351,6 @@ describe('handleExtensionMessage - the PDF in the active tab', () => {
     expect(response).toMatchObject({ pdf: null, reason: 'no-permission' });
   });
 
-  it('prints the tab as bytes, since it is not a local file', async () => {
-    const client = createMockNativeHostClient({
-      replies: {
-        PRINT_RECEIPT: { ticketNumber: '1167', confidence: 1, warnings: [], bytesSent: 800 },
-      },
-    });
-    const response = await handleExtensionMessage(
-      { kind: 'PRINT_ACTIVE_TAB' },
-      fromPage,
-      deps({ client, fetchActiveTab: () => Promise.resolve(BYTES) }),
-    );
-
-    expect(response).toMatchObject({ kind: 'PRINTED_RECEIPT', data: { ticketNumber: '1167' } });
-    expect(client.lastSent).toMatchObject({
-      type: 'PRINT_RECEIPT',
-      payload: { source: { kind: 'bytes', base64: 'JVBERi0xLjQ=' }, trigger: 'user' },
-    });
-  });
-
-  it('reports a fetch failure without asking the host to print', async () => {
-    const client = createMockNativeHostClient();
-    const response = await handleExtensionMessage(
-      { kind: 'PRINT_ACTIVE_TAB' },
-      fromPage,
-      deps({ client, fetchActiveTab: () => Promise.reject(new Error('403')) }),
-    );
-    expect(response.kind).toBe('ERROR');
-    expect(client.sent).toEqual([]);
-  });
-
-  it('says so plainly when there is no tab to print', async () => {
-    const response = await handleExtensionMessage({ kind: 'PRINT_ACTIVE_TAB' }, fromPage, deps());
-    expect(response).toEqual({ kind: 'ERROR', message: 'Aucun onglet à imprimer.' });
-  });
-
-  it('refuses to print a tab on a page script’s behalf', async () => {
-    // The intent carries no url, so a page cannot nominate a document - but it
-    // must not be able to trigger a print of whatever is on screen either.
-    const client = createMockNativeHostClient();
-    const response = await handleExtensionMessage(
-      { kind: 'PRINT_ACTIVE_TAB' },
-      { id: EXTENSION_ID, origin: 'https://booksy.com' },
-      deps({ client, fetchActiveTab: () => Promise.resolve(BYTES) }),
-    );
-    expect(response.kind).toBe('ERROR');
-    expect(client.sent).toEqual([]);
-  });
-
   it('lets a page script ask what the tab shows, which reveals nothing new', async () => {
     const response = await handleExtensionMessage(
       { kind: 'GET_ACTIVE_TAB' },
@@ -565,5 +358,233 @@ describe('handleExtensionMessage - the PDF in the active tab', () => {
       deps({ activeTabPdf: () => Promise.resolve({ pdf: PDF }) }),
     );
     expect(response.kind).toBe('ACTIVE_TAB');
+  });
+});
+
+describe('handleExtensionMessage - the approval page', () => {
+  const fromPage = { id: EXTENSION_ID, origin: `chrome-extension://${EXTENSION_ID}` };
+  const BYTES = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+  const RENDERED = {
+    format: 'svg' as const,
+    content: '<svg/>',
+    ticketNumber: '1167',
+    confidence: 1,
+    warnings: [],
+    columns: 42,
+    byteCount: 856,
+  };
+
+  it('captures the active tab once, because a tab has no path to re-read', async () => {
+    const opened: string[] = [];
+    const response = await handleExtensionMessage(
+      { kind: 'PREPARE_PREVIEW', source: { kind: 'activeTab' } },
+      fromPage,
+      deps({
+        fetchActiveTab: () => Promise.resolve(BYTES),
+        activeTabPdf: () => Promise.resolve({ pdf: { name: 'recu.pdf', url: 'https://x/y.pdf' } }),
+        openPreview: (id) => {
+          opened.push(id);
+        },
+      }),
+    );
+    expect(response).toMatchObject({ kind: 'PREVIEW_READY', label: 'recu.pdf' });
+    expect(opened).toHaveLength(1);
+  });
+
+  it('renders the captured bytes at the configured width', async () => {
+    const client = createMockNativeHostClient({ replies: { RENDER_RECEIPT: RENDERED } });
+    const shared = deps({ client, fetchActiveTab: () => Promise.resolve(BYTES) });
+
+    const prepared = await handleExtensionMessage(
+      { kind: 'PREPARE_PREVIEW', source: { kind: 'activeTab' } },
+      fromPage,
+      shared,
+    );
+    if (prepared.kind !== 'PREVIEW_READY') throw new Error('préparation échouée');
+
+    await handleExtensionMessage({ kind: 'RENDER_PREVIEW', id: prepared.id }, fromPage, shared);
+    expect(client.lastSent).toMatchObject({
+      type: 'RENDER_RECEIPT',
+      payload: { source: { kind: 'bytes', base64: 'JVBERg==' }, format: 'svg' },
+    });
+  });
+
+  it('sends the label back with the render, so the page holds only an id', async () => {
+    const client = createMockNativeHostClient({ replies: { RENDER_RECEIPT: RENDERED } });
+    const shared = deps({
+      client,
+      fetchActiveTab: () => Promise.resolve(BYTES),
+      activeTabPdf: () => Promise.resolve({ pdf: { name: 'recu-1167.pdf', url: 'https://x/y' } }),
+    });
+
+    const prepared = await handleExtensionMessage(
+      { kind: 'PREPARE_PREVIEW', source: { kind: 'activeTab' } },
+      fromPage,
+      shared,
+    );
+    if (prepared.kind !== 'PREVIEW_READY') throw new Error('préparation échouée');
+
+    const rendered = await handleExtensionMessage(
+      { kind: 'RENDER_PREVIEW', id: prepared.id },
+      fromPage,
+      shared,
+    );
+    expect(rendered).toMatchObject({ kind: 'PREVIEW', label: 'recu-1167.pdf' });
+  });
+
+  it('hands a local PDF over as a path, so the service opens it itself', async () => {
+    // The browser has no business reading a file from disk, and the service
+    // re-validates the path against its allowed directories every call.
+    const client = createMockNativeHostClient({ replies: { RENDER_RECEIPT: RENDERED } });
+    const shared = deps({
+      client,
+      activeTabPdf: () =>
+        Promise.resolve({
+          pdf: { name: 'recu-1167.pdf', url: 'file:///Users/x/Downloads/recu-1167.pdf' },
+        }),
+      fetchActiveTab: () => Promise.reject(new Error('le worker ne doit pas lire le fichier')),
+    });
+
+    const prepared = await handleExtensionMessage(
+      { kind: 'PREPARE_PREVIEW', source: { kind: 'activeTab' } },
+      fromPage,
+      shared,
+    );
+    if (prepared.kind !== 'PREVIEW_READY') throw new Error('préparation échouée');
+
+    await handleExtensionMessage({ kind: 'RENDER_PREVIEW', id: prepared.id }, fromPage, shared);
+    expect(client.lastSent).toMatchObject({
+      type: 'RENDER_RECEIPT',
+      payload: { source: { kind: 'path', path: '/Users/x/Downloads/recu-1167.pdf' } },
+    });
+  });
+
+  it('still fetches an http PDF as bytes, having no path to re-read', async () => {
+    const client = createMockNativeHostClient({ replies: { RENDER_RECEIPT: RENDERED } });
+    const shared = deps({
+      client,
+      activeTabPdf: () =>
+        Promise.resolve({ pdf: { name: 'recu.pdf', url: 'https://booksy.com/recu/1167.pdf' } }),
+      fetchActiveTab: () => Promise.resolve(BYTES),
+    });
+
+    const prepared = await handleExtensionMessage(
+      { kind: 'PREPARE_PREVIEW', source: { kind: 'activeTab' } },
+      fromPage,
+      shared,
+    );
+    if (prepared.kind !== 'PREVIEW_READY') throw new Error('préparation échouée');
+
+    await handleExtensionMessage({ kind: 'RENDER_PREVIEW', id: prepared.id }, fromPage, shared);
+    expect(client.lastSent).toMatchObject({
+      type: 'RENDER_RECEIPT',
+      payload: { source: { kind: 'bytes', base64: 'JVBERg==' } },
+    });
+  });
+
+  it('says so plainly when there is no tab to capture', async () => {
+    const response = await handleExtensionMessage(
+      { kind: 'PREPARE_PREVIEW', source: { kind: 'activeTab' } },
+      fromPage,
+      deps(),
+    );
+    expect(response).toEqual({ kind: 'ERROR', message: 'Aucun onglet à imprimer.' });
+  });
+
+  it('reports a failed capture without asking the host for anything', async () => {
+    const client = createMockNativeHostClient();
+    const response = await handleExtensionMessage(
+      { kind: 'PREPARE_PREVIEW', source: { kind: 'activeTab' } },
+      fromPage,
+      deps({ client, fetchActiveTab: () => Promise.reject(new Error('403')) }),
+    );
+    expect(response.kind).toBe('ERROR');
+    expect(client.sent).toEqual([]);
+  });
+
+  it('prints the same bytes it rendered, on the printer chosen on the page', async () => {
+    const client = createMockNativeHostClient({
+      replies: {
+        RENDER_RECEIPT: RENDERED,
+        PRINT_RECEIPT: { ticketNumber: '1167', confidence: 1, warnings: [] },
+      },
+    });
+    const shared = deps({ client, fetchActiveTab: () => Promise.resolve(BYTES) });
+
+    const prepared = await handleExtensionMessage(
+      { kind: 'PREPARE_PREVIEW', source: { kind: 'activeTab' } },
+      fromPage,
+      shared,
+    );
+    if (prepared.kind !== 'PREVIEW_READY') throw new Error('préparation échouée');
+
+    const printed = await handleExtensionMessage(
+      { kind: 'PRINT_PREVIEW', id: prepared.id, printerName: 'Autre' },
+      fromPage,
+      shared,
+    );
+    expect(printed.kind).toBe('PRINTED_RECEIPT');
+    expect(client.lastSent).toMatchObject({
+      type: 'PRINT_RECEIPT',
+      payload: {
+        source: { kind: 'bytes', base64: 'JVBERg==' },
+        printerName: 'Autre',
+        trigger: 'user',
+      },
+    });
+  });
+
+  it('leaves the preview open when the print failed', async () => {
+    // The point of an approval page is being able to try again after fixing
+    // the printer.
+    const storage = memoryStorage();
+    const client = createMockNativeHostClient({
+      replies: { RENDER_RECEIPT: RENDERED },
+      failWith: { code: 'PRINTER_OFFLINE', message: 'hors ligne' },
+    });
+    const shared = deps({ storage, client, fetchActiveTab: () => Promise.resolve(BYTES) });
+
+    const prepared = await handleExtensionMessage(
+      { kind: 'PREPARE_PREVIEW', source: { kind: 'activeTab' } },
+      fromPage,
+      shared,
+    );
+    if (prepared.kind !== 'PREVIEW_READY') throw new Error('préparation échouée');
+
+    const printed = await handleExtensionMessage(
+      { kind: 'PRINT_PREVIEW', id: prepared.id },
+      fromPage,
+      shared,
+    );
+    expect(printed.kind).toBe('ERROR');
+
+    // Asserted on the store rather than by rendering again: the mock fails
+    // every call once told to, so a second render would fail for its own
+    // reason and prove nothing.
+    const stored = storage.snapshot()[PENDING_KEY] as { id: string }[] | undefined;
+    expect(stored?.map((entry) => entry.id)).toEqual([prepared.id]);
+  });
+
+  it('refuses every preview intent from a page context', async () => {
+    const client = createMockNativeHostClient();
+    const fromTab = { id: EXTENSION_ID, origin: 'https://booksy.com' };
+    for (const request of [
+      { kind: 'PREPARE_PREVIEW' as const, source: { kind: 'activeTab' as const } },
+      { kind: 'RENDER_PREVIEW' as const, id: 'p-1' },
+      { kind: 'PRINT_PREVIEW' as const, id: 'p-1' },
+    ]) {
+      const response = await handleExtensionMessage(request, fromTab, deps({ client }));
+      expect(response.kind, request.kind).toBe('ERROR');
+    }
+    expect(client.sent).toEqual([]);
+  });
+
+  it('says so when an approval has expired', async () => {
+    const response = await handleExtensionMessage(
+      { kind: 'RENDER_PREVIEW', id: 'p-inconnu' },
+      fromPage,
+      deps(),
+    );
+    expect(response).toMatchObject({ kind: 'ERROR' });
   });
 });

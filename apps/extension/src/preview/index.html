@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aperçu avant impression</title>
+    <link rel="stylesheet" href="./preview.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1 id="title">Aperçu avant impression</h1>
+        <p class="status" id="status">Chargement…</p>
+      </header>
+
+      <div class="layout">
+        <section class="paper" aria-label="Aperçu du ticket">
+          <!-- The decoded ESC/POS job goes here, as inline SVG. -->
+          <div id="ticket"></div>
+        </section>
+
+        <aside class="controls">
+          <label for="printer">Imprimante</label>
+          <select id="printer" disabled>
+            <option value="">— choisir —</option>
+          </select>
+          <p class="note" id="printer-note"></p>
+
+          <dl class="facts">
+            <dt>Ticket</dt>
+            <dd id="fact-ticket">—</dd>
+            <dt>Lecture</dt>
+            <dd id="fact-confidence">—</dd>
+            <dt>Envoi</dt>
+            <dd id="fact-bytes">—</dd>
+          </dl>
+
+          <p class="warn" id="warnings"></p>
+
+          <div class="actions">
+            <button type="button" id="print" disabled>Imprimer</button>
+            <button type="button" id="cancel">Annuler</button>
+          </div>
+          <p class="feedback" id="feedback"></p>
+        </aside>
+      </div>
+    </main>
+    <script type="module" src="./preview.ts"></script>
+  </body>
+</html>

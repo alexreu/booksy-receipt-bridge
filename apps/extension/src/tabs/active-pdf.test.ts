@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeTabPdfOf, activeTabResultOf, basenameOfUrl } from './active-pdf.ts';
+import { activeTabPdfOf, activeTabResultOf, basenameOfUrl, localPathOf } from './active-pdf.ts';
 
 describe('activeTabPdfOf', () => {
   it('recognises a PDF by its path', () => {
@@ -30,18 +30,33 @@ describe('activeTabPdfOf', () => {
     expect(activeTabPdfOf({ url: 'https://x.example/a.html', title: 'Page' })).toBeNull();
   });
 
-  it('refuses a scheme the worker cannot fetch', () => {
-    // blob:, data: and file: either cannot be fetched from the worker or would
-    // need permissions this extension deliberately does not ask for.
+  it('refuses a scheme with nothing printable behind it', () => {
+    // blob: and data: hold no path the service could open and no address the
+    // worker may fetch; the others are not documents at all.
     for (const url of [
       'blob:https://x.example/abc',
       'data:application/pdf;base64,JVBERi0=',
-      'file:///Users/x/Downloads/recu.pdf',
       'chrome-extension://abc/popup/index.html',
       'chrome://settings',
     ]) {
       expect(activeTabPdfOf({ url, title: 'recu.pdf' }), url).toBeNull();
     }
+  });
+
+  it('accepts a local PDF, which the service will open by path', () => {
+    // The browser never reads the file: the worker hands the service the path
+    // and the service re-validates it against its allowed directories.
+    expect(activeTabPdfOf({ url: 'file:///Users/x/Downloads/recu-1167.pdf' })).toEqual({
+      name: 'recu-1167.pdf',
+      url: 'file:///Users/x/Downloads/recu-1167.pdf',
+    });
+  });
+
+  it('refuses a file URL that points at another machine', () => {
+    // A UNC share is not this filesystem, and the service would refuse it.
+    expect(
+      activeTabPdfOf({ url: 'file://serveur/partage/recu.pdf', title: 'recu.pdf' }),
+    ).toBeNull();
   });
 
   it('refuses a tab with no url', () => {
@@ -95,5 +110,36 @@ describe('activeTabResultOf', () => {
 
   it('reports when there is no tab at all', () => {
     expect(activeTabResultOf(undefined)).toEqual({ pdf: null, reason: 'no-tab' });
+  });
+});
+
+describe('localPathOf', () => {
+  it('gives the path a local file URL stands for', () => {
+    expect(localPathOf('file:///Users/x/Downloads/recu-1167.pdf')).toBe(
+      '/Users/x/Downloads/recu-1167.pdf',
+    );
+  });
+
+  it('decodes what the URL escaped', () => {
+    expect(localPathOf('file:///Users/x/Downloads/re%C3%A7u%201167.pdf')).toBe(
+      '/Users/x/Downloads/reçu 1167.pdf',
+    );
+  });
+
+  it('drops the slash Windows drive letters arrive with', () => {
+    // file:///C:/... parses to /C:/..., which is not a path Node accepts.
+    expect(localPathOf('file:///C:/Users/x/Downloads/recu.pdf')).toBe(
+      'C:/Users/x/Downloads/recu.pdf',
+    );
+  });
+
+  it('gives nothing for what is not a local file URL', () => {
+    for (const url of [
+      'https://booksy.com/recu/1167.pdf',
+      'file://serveur/partage/recu.pdf',
+      'pas une url',
+    ]) {
+      expect(localPathOf(url), url).toBeUndefined();
+    }
   });
 });

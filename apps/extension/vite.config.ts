@@ -39,6 +39,7 @@ export default defineConfig({
         'background/index': resolve(import.meta.dirname, 'src/background/index.ts'),
         'popup/index': resolve(import.meta.dirname, 'src/popup/index.html'),
         'options/index': resolve(import.meta.dirname, 'src/options/index.html'),
+        'preview/index': resolve(import.meta.dirname, 'src/preview/index.html'),
       },
       output: {
         entryFileNames: '[name].js',

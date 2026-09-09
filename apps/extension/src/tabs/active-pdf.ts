@@ -11,8 +11,14 @@ import type { ActiveTabPdf } from '../messaging/protocol.ts';
  *
  * Two signals, because neither alone is enough. A URL path ending in .pdf is
  * the obvious one, but a PDF can be served from a URL that says nothing; the
- * built-in viewer sets the tab title to the filename, which usually does. When
- * both miss, the download route still covers the receipt (plan section 29).
+ * built-in viewer sets the tab title to the filename, which usually does.
+ *
+ * `file:` counts, and takes a different route to the bytes. The worker cannot
+ * read a local file - that needs a permission this extension deliberately does
+ * not ask for - but the SERVICE can, and already does it safely: it re-validates
+ * the path against its allowed directories, resolves symlinks first, and checks
+ * the file really is a PDF (plan section 23). So a file:// tab is printed by
+ * handing the service the path, never by reading the file in the browser.
  */
 
 export interface TabInfo {
@@ -20,8 +26,8 @@ export interface TabInfo {
   title?: string | undefined;
 }
 
-/** Schemes the worker can actually fetch from. */
-const FETCHABLE = ['http:', 'https:'];
+/** Schemes a receipt can be printed from. */
+const PRINTABLE = ['http:', 'https:', 'file:'];
 
 function endsWithPdf(value: string): boolean {
   return value.toLowerCase().endsWith('.pdf');
@@ -74,10 +80,12 @@ export function activeTabPdfOf(tab: TabInfo | undefined): ActiveTabPdf | null {
     return null;
   }
 
-  // blob:, data:, file: and chrome-extension: are all out: the worker cannot
-  // fetch them, or cannot without permissions this extension deliberately does
-  // not ask for.
-  if (!FETCHABLE.includes(url.protocol)) return null;
+  // blob:, data: and chrome-extension: are out: there is nothing there the
+  // service could be handed, and nothing worth printing.
+  if (!PRINTABLE.includes(url.protocol)) return null;
+  // A UNC path (file://serveur/partage) is not this machine's filesystem, and
+  // the service would refuse it anyway.
+  if (url.protocol === 'file:' && url.hostname !== '') return null;
 
   const byPath = endsWithPdf(url.pathname);
   const byTitle = tab.title !== undefined && endsWithPdf(tab.title.trim());
@@ -85,4 +93,30 @@ export function activeTabPdfOf(tab: TabInfo | undefined): ActiveTabPdf | null {
 
   const name = byTitle && tab.title !== undefined ? tab.title.trim() : basenameOfUrl(url);
   return { name, url: tab.url };
+}
+
+/**
+ * The local path behind a `file:` URL.
+ *
+ * Returned so the SERVICE can open the file: it is the only side allowed to,
+ * and it validates the path again before it does. Undefined for anything that
+ * is not a plain local file URL.
+ */
+export function localPathOf(rawUrl: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== 'file:' || url.hostname !== '') return undefined;
+
+  let path: string;
+  try {
+    path = decodeURIComponent(url.pathname);
+  } catch {
+    return undefined;
+  }
+  // Windows: file:///C:/... gives /C:/..., which is not a path Node accepts.
+  return /^\/[A-Za-z]:/.test(path) ? path.slice(1) : path;
 }

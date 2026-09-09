@@ -1,5 +1,4 @@
 import type { ActiveTabPdf } from '../messaging/protocol.ts';
-import type { DetectedRow } from './detected.ts';
 import type { UpdateView } from './update.ts';
 import type { PopupView } from './render.ts';
 
@@ -47,20 +46,11 @@ export function applyPopupView(document: Document, view: PopupView): void {
     }),
   );
 
-  const printer = element('printer');
-  printer.hidden = view.printerName === undefined;
-  element('printer-name').textContent = view.printerName ?? '—';
-
-  const printTest = element<HTMLButtonElement>('print-test');
-  printTest.disabled = !view.canPrintTest;
-  printTest.title = view.printTestReason ?? '';
-
   element('hint').textContent = view.hint ?? '';
   element('footer').textContent = view.footer ?? '';
 
-  // #tab-pdf and #detected are deliberately NOT written here either: it is driven by session
-  // storage rather than by the host state, and re-rendering the host state
-  // must not blank the list.
+  // #tab-pdf is deliberately NOT written here either: it comes from the tab
+  // rather than from the host state, and a host refresh must not blank it.
 
   // #feedback is deliberately NOT written here. It carries the result of an
   // action the user just took, and printing re-renders the whole view straight
@@ -70,66 +60,15 @@ export function applyPopupView(document: Document, view: PopupView): void {
 }
 
 /**
- * Write the detected-receipt list.
+ * Write the print section.
  *
- * Separate from the host view because the two have different sources: this list
- * comes from session storage and survives a host state refresh.
+ * ALWAYS VISIBLE. Hiding the button when the tab holds no PDF left the popup
+ * with nothing but "Imprimer un test", which reads as if printing a receipt
+ * were not what this extension does. A greyed button that says why is the
+ * honest version.
  *
- * The buttons carry their download id as a data attribute and are handled by
- * one delegated listener - inline handlers are forbidden by the manifest V3
- * content security policy.
- */
-export function applyDetectedRows(document: Document, rows: readonly DetectedRow[]): void {
-  const section = document.getElementById('detected');
-  const list = document.getElementById('detected-list');
-  if (section === null || list === null) return;
-
-  section.hidden = rows.length === 0;
-  list.replaceChildren(
-    ...rows.map((row) => {
-      const li = document.createElement('li');
-
-      const label = document.createElement('div');
-      label.className = 'label';
-      label.textContent = row.label;
-
-      const detail = document.createElement('div');
-      detail.className = 'detail';
-      detail.textContent = row.caution === undefined ? row.detail : `${row.detail} — ${row.caution}`;
-
-      li.append(label, detail);
-
-      const actions = document.createElement('div');
-      actions.className = 'row-actions';
-      actions.append(
-        button(document, 'Imprimer', 'print-detected', row.downloadId),
-        button(document, 'Ignorer', 'dismiss-detected', row.downloadId),
-      );
-      li.append(actions);
-      return li;
-    }),
-  );
-}
-
-function button(
-  document: Document,
-  text: string,
-  action: string,
-  downloadId: number,
-): HTMLButtonElement {
-  const element = document.createElement('button');
-  element.type = 'button';
-  element.textContent = text;
-  element.dataset['action'] = action;
-  element.dataset['downloadId'] = String(downloadId);
-  return element;
-}
-
-/**
- * Write the active-tab section.
- *
- * Its own applier, for the same reason as the detected list: it comes from the
- * tab rather than from the host state, and a host refresh must not blank it.
+ * Its own applier: it comes from the tab rather than from the host state, and
+ * a host refresh must not blank it.
  */
 export function applyActiveTabPdf(
   document: Document,
@@ -142,25 +81,28 @@ export function applyActiveTabPdf(
   const button = document.getElementById('print-tab') as HTMLButtonElement | null;
   if (section === null || name === null || button === null) return;
 
-  // Shown for a missing grant too, but worded without blaming the user: the
-  // grant may be missing for reasons they cannot act on, and telling someone
-  // who just clicked the icon to click the icon is worse than saying nothing.
-  // It points at the download route instead, which needs no tab access at all.
-  const showPermissionHint = pdf === null && reason === 'no-permission';
-  section.hidden = pdf === null && !showPermissionHint;
-  if (section.hidden) return;
+  section.hidden = false;
 
-  if (showPermissionHint) {
-    name.textContent =
-      'Onglet illisible. Téléchargez le reçu : il sera détecté automatiquement.';
-    button.disabled = true;
-    button.title = 'Accès à cet onglet non accordé.';
+  if (pdf !== null) {
+    name.textContent = pdf.name;
+    // No printer check: the printer is chosen in the preview, so the only
+    // thing that can stop this button is the service being down.
+    button.disabled = !canPrint;
+    button.title = canPrint ? '' : 'Le service ne répond pas.';
     return;
   }
 
-  name.textContent = pdf?.name ?? '—';
-  button.disabled = !canPrint;
-  button.title = canPrint ? '' : 'Configurez une imprimante pour pouvoir imprimer.';
+  button.disabled = true;
+  // Worded without blaming the user: telling someone who just clicked the
+  // toolbar icon to click the toolbar icon is worse than saying nothing.
+  // Reloading the page is what re-establishes the grant.
+  if (reason === 'no-permission') {
+    name.textContent = 'Onglet illisible. Rechargez la page du PDF, puis réessayez.';
+    button.title = 'Accès à cet onglet non accordé.';
+    return;
+  }
+  name.textContent = 'Ouvrez le reçu PDF dans un onglet pour l’imprimer.';
+  button.title = 'Cet onglet n’affiche pas de PDF.';
 }
 
 /** Write the update section. Its own applier, like the sections above it. */

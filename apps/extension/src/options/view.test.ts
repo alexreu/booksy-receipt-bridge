@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { PROTOCOL_VERSION, type BridgeConfig, type StatusData } from '@brb/shared';
 import type { HostState } from '../messaging/state.ts';
 import {
-  AUTO_PRINT_IMPLEMENTED,
   buildPatch,
   formValuesOf,
   optionsView,
@@ -77,22 +76,6 @@ describe('optionsView', () => {
     expect(view.printerNote).toContain('Aucune imprimante');
   });
 
-  it('does not offer auto-print while the extension cannot act on it', () => {
-    // The missing piece is in the extension - download detection and the
-    // trigger - so the host being able to print a receipt is not enough. A
-    // tickable box that does nothing is a promise the extension cannot keep.
-    expect(AUTO_PRINT_IMPLEMENTED).toBe(false);
-    const view = optionsView({
-      state: {
-        kind: 'connected',
-        version: '1',
-        status: status({ supported: ['PING', 'GET_STATUS', 'PRINT_RECEIPT'] }),
-      },
-      printers: [{ name: 'X' }],
-    });
-    expect(view.canAutoPrint).toBe(false);
-    expect(view.autoPrintNote).toContain('téléchargements');
-  });
 });
 
 describe('formValuesOf', () => {
@@ -102,9 +85,6 @@ describe('formValuesOf', () => {
       paperWidth: 80,
       printableWidth: 72,
       columns: 42,
-      showPreview: true,
-      autoPrint: false,
-      confidenceThreshold: 0.9,
     });
   });
 });
@@ -121,7 +101,6 @@ describe('buildPatch', () => {
         printableWidth: 72,
         columns: 42,
       },
-      printing: { showPreview: true, autoPrint: false, confidenceThreshold: 0.9 },
     });
   });
 
@@ -148,16 +127,9 @@ describe('buildPatch', () => {
     expect(buildPatch(values({ columns: 0 })).ok).toBe(false);
   });
 
-  it('refuses a threshold outside 0..1', () => {
-    expect(buildPatch(values({ confidenceThreshold: 1.5 })).ok).toBe(false);
-    expect(buildPatch(values({ confidenceThreshold: -0.1 })).ok).toBe(false);
-    expect(buildPatch(values({ confidenceThreshold: 0 })).ok).toBe(true);
-    expect(buildPatch(values({ confidenceThreshold: 1 })).ok).toBe(true);
-  });
-
   it('refuses an empty numeric field, which reads as NaN', () => {
     // valueAsNumber on a blank input is NaN, so this is the common case.
     expect(buildPatch(values({ paperWidth: Number.NaN })).ok).toBe(false);
-    expect(buildPatch(values({ confidenceThreshold: Number.NaN })).ok).toBe(false);
+    expect(buildPatch(values({ columns: Number.NaN })).ok).toBe(false);
   });
 });

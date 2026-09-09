@@ -1,23 +1,30 @@
 import type {
   ConfigData,
+  RenderedReceipt,
   UpdateCheck,
   UpdateDownload,
   ListPrintersData,
   PingData,
   PrintReceiptData,
-  PrintTestData,
 } from '@brb/shared';
-import type { DownloadCandidate } from '../downloads/filter.ts';
-import { forgetDetected, readDetected, type SessionStorage } from '../downloads/store.ts';
-import { reconcileDownloads } from '../downloads/watcher.ts';
+import type { SessionStorage } from '../storage.ts';
+import { localPathOf } from '../tabs/active-pdf.ts';
+import {
+  addPending,
+  dropPending,
+  findPending,
+  previewId,
+  readPending,
+} from '../preview/pending.ts';
 import { nextMessageId, type NativeHostClient } from '../messaging/client.ts';
 import {
-  WRITING_KINDS,
+  PAGE_ALLOWED_KINDS,
   parseExtensionRequest,
   type ExtensionRequest,
   type ExtensionResponse,
 } from '../messaging/protocol.ts';
 import type { Clock } from '@brb/shared';
+import type { ReceiptSource } from '@brb/shared';
 import type { ActiveTabPdf } from '../messaging/protocol.ts';
 import { resolveHostState } from '../messaging/state.ts';
 
@@ -48,17 +55,10 @@ export interface RouterDeps {
    */
   activeTabPdf?: () => Promise<{ pdf: ActiveTabPdf | null; reason?: string }>;
   fetchActiveTab?: () => Promise<Uint8Array>;
-  /**
-   * Recent downloads, newest first. Given, LIST_DETECTED catches up on any
-   * detection lost to the service worker being evicted mid-call.
-   */
-  recentDownloads?: (limit: number) => Promise<DownloadCandidate[]>;
-  /** Look one download up by id, for that same recovery pass. */
-  lookupDownload?: (downloadId: number) => Promise<DownloadCandidate | undefined>;
-  /** Show how many detected receipts still await a decision. */
-  setBadge?: (count: number) => void;
   /** The one place time enters the worker. */
   clock: Clock;
+  /** Opens the approval page. Injected so a test opens no tab. */
+  openPreview?: (id: string) => Promise<void> | void;
   log?: (message: string) => void;
 }
 
@@ -71,9 +71,9 @@ export interface RouterDeps {
  * Two checks guard the native channel. The sender's id must be this extension:
  * `onMessage` is reachable from this extension's content scripts, which run
  * alongside a web page, and without that check the worker is an open relay.
- * And a message carrying a tab is a content script, which gets the read-only
- * intents only - nothing in a page should be able to repoint the printer or
- * start a print job.
+ * And a sender that is not one of this extension's own pages gets only the
+ * allowlisted intents - nothing in a page should repoint the printer, start a
+ * job, or read a receipt's contents.
  */
 export async function handleExtensionMessage(
   raw: unknown,
@@ -91,7 +91,9 @@ export async function handleExtensionMessage(
     return { kind: 'ERROR', message: 'Message interne inconnu.' };
   }
 
-  if (!isExtensionPage(sender, deps.extensionId) && WRITING_KINDS.includes(request.kind)) {
+  // Default-deny: a page gets only what is on the allowlist, so an intent
+  // added later is refused there until someone lists it deliberately.
+  if (!isExtensionPage(sender, deps.extensionId) && !PAGE_ALLOWED_KINDS.includes(request.kind)) {
     deps.log?.(`${request.kind} refusé à un contexte de page : ${String(sender.origin)}`);
     return { kind: 'ERROR', message: 'Action non autorisée depuis une page.' };
   }
@@ -164,39 +166,6 @@ async function dispatch(
       };
     }
 
-    case 'PRINT_TEST': {
-      const response = await deps.client.send<PrintTestData>({
-        id: nextMessageId(),
-        type: 'PRINT_TEST',
-      });
-      if (!response.success) {
-        return { kind: 'ERROR', message: response.error?.message ?? 'Impression échouée.' };
-      }
-      return { kind: 'PRINTED', data: response.data ?? {} };
-    }
-
-    case 'LIST_DETECTED': {
-      if (deps.recentDownloads === undefined || deps.lookupDownload === undefined) {
-        return { kind: 'DETECTED', receipts: await readDetected(deps.storage) };
-      }
-      const receipts = await reconcileDownloads({
-        client: deps.client,
-        storage: deps.storage,
-        lookup: deps.lookupDownload,
-        recent: deps.recentDownloads,
-        now: deps.clock,
-        ...(deps.setBadge === undefined ? {} : { setBadge: deps.setBadge }),
-        ...(deps.log === undefined ? {} : { log: deps.log }),
-      });
-      return { kind: 'DETECTED', receipts };
-    }
-
-    case 'DISMISS_DETECTED': {
-      const receipts = await forgetDetected(deps.storage, request.downloadId);
-      deps.setBadge?.(receipts.length);
-      return { kind: 'DETECTED', receipts };
-    }
-
     case 'GET_ACTIVE_TAB': {
       if (deps.activeTabPdf === undefined) return { kind: 'ACTIVE_TAB', pdf: null };
       const result = await deps.activeTabPdf();
@@ -205,33 +174,6 @@ async function dispatch(
         pdf: result.pdf,
         ...(result.reason === undefined ? {} : { reason: result.reason }),
       };
-    }
-
-    case 'PRINT_ACTIVE_TAB': {
-      if (deps.fetchActiveTab === undefined) {
-        return { kind: 'ERROR', message: 'Aucun onglet à imprimer.' };
-      }
-
-      let bytes: Uint8Array;
-      try {
-        bytes = await deps.fetchActiveTab();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        deps.log?.(`Récupération du PDF échouée : ${message}`);
-        return { kind: 'ERROR', message: 'Le PDF de cet onglet n’a pas pu être lu.' };
-      }
-
-      const response = await deps.client.send<PrintReceiptData>({
-        id: nextMessageId(),
-        type: 'PRINT_RECEIPT',
-        // Bytes rather than a path: a PDF shown in a tab is not a local file
-        // (plan section 2.3).
-        payload: { source: { kind: 'bytes', base64: toBase64(bytes) }, trigger: 'user' },
-      });
-      if (!response.success || response.data === undefined) {
-        return { kind: 'ERROR', message: response.error?.message ?? 'Impression échouée.' };
-      }
-      return { kind: 'PRINTED_RECEIPT', data: response.data };
     }
 
     case 'CHECK_UPDATE': {
@@ -256,36 +198,124 @@ async function dispatch(
       return { kind: 'UPDATE_DOWNLOADED', download: response.data };
     }
 
-    case 'PRINT_DETECTED': {
-      // The path comes from what the worker itself recorded, never from the
-      // caller: a caller names a download id, and nothing else.
-      const known = (await readDetected(deps.storage)).find(
-        (entry) => entry.downloadId === request.downloadId,
-      );
-      if (known === undefined) {
-        return { kind: 'ERROR', message: 'Ce reçu n’est plus disponible.' };
-      }
+    case 'PREPARE_PREVIEW': {
+      // Captured once, up front: what is approved must be what is printed.
+      const captured = await capture(deps);
+      if (!captured.ok) return { kind: 'ERROR', message: captured.error };
 
+      const existing = await readPending(deps.storage);
+      const id = previewId(deps.clock, existing);
+      await addPending(deps.storage, {
+        id,
+        source: captured.source,
+        ...(captured.label === undefined ? {} : { label: captured.label }),
+        createdAt: deps.clock(),
+      });
+      await deps.openPreview?.(id);
+      return {
+        kind: 'PREVIEW_READY',
+        id,
+        ...(captured.label === undefined ? {} : { label: captured.label }),
+      };
+    }
+
+    case 'RENDER_PREVIEW': {
+      const pending = await findPending(deps.storage, request.id);
+      if (pending === undefined) {
+        return { kind: 'ERROR', message: 'Cet aperçu a expiré.' };
+      }
+      const response = await deps.client.send<RenderedReceipt>({
+        id: nextMessageId(),
+        type: 'RENDER_RECEIPT',
+        payload: { source: pending.source, format: 'svg' },
+      });
+      if (!response.success || response.data === undefined) {
+        return { kind: 'ERROR', message: response.error?.message ?? 'Aperçu indisponible.' };
+      }
+      return {
+        kind: 'PREVIEW',
+        rendered: response.data,
+        // The label travels with the render, so the page never has to be told
+        // what it is showing: it only ever holds an id.
+        ...(pending.label === undefined ? {} : { label: pending.label }),
+      };
+    }
+
+    case 'PRINT_PREVIEW': {
+      const pending = await findPending(deps.storage, request.id);
+      if (pending === undefined) {
+        return { kind: 'ERROR', message: 'Cet aperçu a expiré.' };
+      }
       const response = await deps.client.send<PrintReceiptData>({
         id: nextMessageId(),
         type: 'PRINT_RECEIPT',
-        payload: { source: { kind: 'path', path: known.path }, trigger: 'user' },
+        payload: {
+          // The same source the preview was rendered from.
+          source: pending.source,
+          trigger: 'user',
+          ...(request.printerName === undefined ? {} : { printerName: request.printerName }),
+        },
       });
       if (!response.success || response.data === undefined) {
         return { kind: 'ERROR', message: response.error?.message ?? 'Impression échouée.' };
       }
-
-      // Removed rather than marked: there is nothing left to do with it, and
-      // the host's own window is what stops a second print of the same
-      // receipt. Only on success - a failed print must stay on the list.
-      const receipts = await forgetDetected(deps.storage, request.downloadId);
-      deps.setBadge?.(receipts.length);
+      // Only once it printed: a failure must leave the preview open to retry.
+      await dropPending(deps.storage, request.id);
       return { kind: 'PRINTED_RECEIPT', data: response.data };
     }
+
+    case 'DISCARD_PREVIEW': {
+      await dropPending(deps.storage, request.id);
+      return { kind: 'PREVIEW_READY', id: request.id };
+    }
+
   }
 }
 
-/** Chunked, because spreading a large array into String.fromCharCode overflows. */
+/**
+ * Resolve what the tab is showing into something the host can read, once.
+ *
+ * TWO ROUTES, ONE RULE: the browser never reads a local file. A PDF served over
+ * http(s) is fetched here and travels as bytes, because there is no path to
+ * re-read. A `file:` tab travels as its PATH, and the service opens it - it
+ * re-validates that path against its allowed directories every time, resolving
+ * symlinks first (plan section 23). Either way the same source is used for the
+ * preview and for the print, so what was approved is what goes to the printer.
+ */
+async function capture(
+  deps: RouterDeps,
+): Promise<
+  { ok: true; source: ReceiptSource; label?: string } | { ok: false; error: string }
+> {
+  // Read here, not sent by the caller: nothing outside the worker names the
+  // document that will be printed.
+  const active = await deps.activeTabPdf?.();
+  const pdf = active?.pdf ?? null;
+  const label = pdf === null ? undefined : pdf.name;
+
+  const path = pdf === null ? undefined : localPathOf(pdf.url);
+  if (path !== undefined) {
+    return { ok: true, source: { kind: 'path', path }, ...(label === undefined ? {} : { label }) };
+  }
+
+  if (deps.fetchActiveTab === undefined) {
+    return { ok: false, error: 'Aucun onglet à imprimer.' };
+  }
+  try {
+    const bytes = await deps.fetchActiveTab();
+    return {
+      ok: true,
+      source: { kind: 'bytes', base64: toBase64(bytes) },
+      ...(label === undefined ? {} : { label }),
+    };
+  } catch (error) {
+    deps.log?.(
+      `Capture de l'onglet échouée : ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return { ok: false, error: "Le PDF de cet onglet n'a pas pu être lu." };
+  }
+}
+
 function toBase64(bytes: Uint8Array): string {
   let binary = '';
   const chunk = 8192;

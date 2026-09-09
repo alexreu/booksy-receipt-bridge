@@ -9,17 +9,6 @@ import { describeHostState } from '../messaging/state.ts';
  * the popup. `main`-side code only assigns these values and reads the form.
  */
 
-/**
- * Whether the extension can act on the auto-print setting.
- *
- * The missing piece is in the EXTENSION, not the host: automatic printing needs
- * download detection (phase 7) and the trigger itself (phase 10). Gating this
- * on the host's message list was wrong - the host can print a receipt today,
- * but nothing asks it to automatically, so the checkbox would have been a
- * promise the extension cannot keep. Flip this when phase 10 lands.
- */
-export const AUTO_PRINT_IMPLEMENTED = false;
-
 export interface OptionsView {
   status: string;
   state: HostState['kind'];
@@ -28,9 +17,6 @@ export interface OptionsView {
   printers: Printer[];
   /** Explains a printer list that is empty or comes from a mock. */
   printerNote?: string;
-  /** Auto-print has no implementation yet; the checkbox says so. */
-  autoPrintNote?: string;
-  canAutoPrint: boolean;
 }
 
 export interface OptionsInput {
@@ -49,14 +35,6 @@ export function optionsView(input: OptionsInput): OptionsView {
     editable: connected,
     printers,
     ...printerNote(connected, printers, input.adapter),
-    canAutoPrint: AUTO_PRINT_IMPLEMENTED && connected && printers.length > 0,
-    ...(AUTO_PRINT_IMPLEMENTED
-      ? {}
-      : {
-          autoPrintNote:
-            'L’impression automatique n’est pas encore disponible : ' +
-            'la détection des téléchargements arrive dans une version ultérieure.',
-        }),
   };
 }
 
@@ -82,9 +60,6 @@ export interface FormValues {
   paperWidth: number;
   printableWidth: number;
   columns: number;
-  showPreview: boolean;
-  autoPrint: boolean;
-  confidenceThreshold: number;
 }
 
 export function formValuesOf(config: BridgeConfig): FormValues {
@@ -93,9 +68,6 @@ export function formValuesOf(config: BridgeConfig): FormValues {
     paperWidth: config.printer.paperWidth,
     printableWidth: config.printer.printableWidth,
     columns: config.printer.columns,
-    showPreview: config.printing.showPreview,
-    autoPrint: config.printing.autoPrint,
-    confidenceThreshold: config.printing.confidenceThreshold,
   };
 }
 
@@ -123,14 +95,6 @@ export function buildPatch(
   if (!Number.isInteger(values.columns) || values.columns <= 0) {
     return { ok: false, message: 'Le nombre de colonnes doit être un entier positif.' };
   }
-  if (
-    !Number.isFinite(values.confidenceThreshold) ||
-    values.confidenceThreshold < 0 ||
-    values.confidenceThreshold > 1
-  ) {
-    return { ok: false, message: 'Le seuil de confiance doit être compris entre 0 et 1.' };
-  }
-
   return {
     ok: true,
     patch: {
@@ -139,11 +103,6 @@ export function buildPatch(
         paperWidth: values.paperWidth,
         printableWidth: values.printableWidth,
         columns: values.columns,
-      },
-      printing: {
-        showPreview: values.showPreview,
-        autoPrint: values.autoPrint,
-        confidenceThreshold: values.confidenceThreshold,
       },
     },
   };

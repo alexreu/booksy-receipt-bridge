@@ -11,10 +11,6 @@ export interface PopupView {
   summary: string;
   state: HostState['kind'];
   checklist: ReturnType<typeof hostChecklist>;
-  printerName?: string;
-  /** Enabled only when the host says it implements PRINT_TEST. */
-  canPrintTest: boolean;
-  printTestReason?: string;
   hint?: string;
   footer?: string;
 }
@@ -24,13 +20,11 @@ export function popupView(state: HostState): PopupView {
     summary: describeHostState(state),
     state: state.kind,
     checklist: hostChecklist(state),
-    canPrintTest: false,
   };
 
   if (state.kind === 'unavailable') {
     return {
       ...base,
-      printTestReason: 'Le service ne répond pas.',
       hint: hintFor(state.error.code),
       ...(state.error.detail === undefined ? {} : { footer: state.error.detail }),
     };
@@ -39,30 +33,19 @@ export function popupView(state: HostState): PopupView {
   if (state.kind === 'version-mismatch') {
     return {
       ...base,
-      printTestReason: 'Version du service incompatible.',
       hint: 'Mettez à jour Booksy Receipt Bridge sur ce poste.',
     };
   }
 
   if (state.kind === 'checking') return base;
 
-  // Driven by what the host declares it supports, rather than by a hardcoded
-  // list here: the button lights up on its own once printing lands, and it
-  // cannot promise something the installed service cannot do.
-  const supportsTest = state.status.supported.includes('PRINT_TEST');
-
   return {
     ...base,
+    // Not a blocker: the printer is chosen in the preview, per job. This only
+    // says where.
     ...(state.status.printerConfigured
       ? {}
-      : { hint: 'Choisissez une imprimante pour pouvoir imprimer.' }),
-    canPrintTest: supportsTest && state.status.printerFound,
-    ...(supportsTest
-      ? state.status.printerFound
-        ? {}
-        : { printTestReason: 'Imprimante introuvable.' }
-      : { printTestReason: 'Impression pas encore disponible dans le service installé.' }),
-    ...(state.status.printerName === undefined ? {} : { printerName: state.status.printerName }),
+      : { hint: 'Aucune imprimante par défaut : choisissez-la dans l’aperçu.' }),
     footer: `service ${state.version} · protocole ${state.status.protocolVersion} · pilote ${state.status.printerAdapter}`,
   };
 }

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { WRITING_KINDS, parseConfigPatch, parseExtensionRequest } from './protocol.ts';
+import { PAGE_ALLOWED_KINDS, parseConfigPatch, parseExtensionRequest } from './protocol.ts';
 
 describe('parseExtensionRequest', () => {
-  it('accepts the read-only intents', () => {
+  it('accepts the allowlisted intents', () => {
     for (const kind of [
       'GET_HOST_STATE',
       'GET_ACTIVE_TAB',
@@ -14,8 +14,55 @@ describe('parseExtensionRequest', () => {
     }
   });
 
-  it('accepts PRINT_TEST', () => {
-    expect(parseExtensionRequest({ kind: 'PRINT_TEST' })).toEqual({ kind: 'PRINT_TEST' });
+  it('accepts a preview source by kind, never by path', () => {
+    // The only source there is: the worker reads the active tab itself.
+    expect(parseExtensionRequest({ kind: 'PREPARE_PREVIEW', source: { kind: 'activeTab' } })).toEqual(
+      { kind: 'PREPARE_PREVIEW', source: { kind: 'activeTab' } },
+    );
+  });
+
+  it('refuses a preview source that names a file', () => {
+    for (const source of [
+      { kind: 'path', path: '/etc/passwd' },
+      { kind: 'download', downloadId: 7 },
+      { kind: 'bytes', base64: 'JVBERi0=' },
+      [],
+      null,
+      'activeTab',
+    ]) {
+      expect(parseExtensionRequest({ kind: 'PREPARE_PREVIEW', source }), JSON.stringify(source))
+        .toBeUndefined();
+    }
+    expect(parseExtensionRequest({ kind: 'PREPARE_PREVIEW' })).toBeUndefined();
+  });
+
+  it('accepts the preview intents that carry an id', () => {
+    expect(parseExtensionRequest({ kind: 'RENDER_PREVIEW', id: 'p-1' })).toEqual({
+      kind: 'RENDER_PREVIEW',
+      id: 'p-1',
+    });
+    expect(
+      parseExtensionRequest({ kind: 'PRINT_PREVIEW', id: 'p-1', printerName: 'X' }),
+    ).toEqual({ kind: 'PRINT_PREVIEW', id: 'p-1', printerName: 'X' });
+    expect(parseExtensionRequest({ kind: 'DISCARD_PREVIEW', id: 'p-1' })).toEqual({
+      kind: 'DISCARD_PREVIEW',
+      id: 'p-1',
+    });
+  });
+
+  it('refuses a preview intent with no id or a bad printer', () => {
+    expect(parseExtensionRequest({ kind: 'RENDER_PREVIEW' })).toBeUndefined();
+    expect(parseExtensionRequest({ kind: 'RENDER_PREVIEW', id: '' })).toBeUndefined();
+    expect(parseExtensionRequest({ kind: 'PRINT_PREVIEW', id: 'p', printerName: 7 })).toBeUndefined();
+  });
+
+  it('ignores a column count a caller attaches', () => {
+    // The paper is 80 mm and the width lives in the settings; a caller naming
+    // its own would print a ticket nobody previewed at that width.
+    expect(parseExtensionRequest({ kind: 'RENDER_PREVIEW', id: 'p-1', columns: 32 })).toEqual({
+      kind: 'RENDER_PREVIEW',
+      id: 'p-1',
+    });
   });
 
   it('refuses an update check from a page context', () => {
@@ -25,17 +72,6 @@ describe('parseExtensionRequest', () => {
     expect(parseExtensionRequest({ kind: 'DOWNLOAD_UPDATE' })).toEqual({
       kind: 'DOWNLOAD_UPDATE',
     });
-  });
-
-  it('accepts PRINT_ACTIVE_TAB and ignores any url a caller attaches', () => {
-    // The intent carries no address on purpose: the worker resolves the active
-    // tab itself, so there is nothing from a caller to validate.
-    expect(parseExtensionRequest({ kind: 'PRINT_ACTIVE_TAB' })).toEqual({
-      kind: 'PRINT_ACTIVE_TAB',
-    });
-    expect(
-      parseExtensionRequest({ kind: 'PRINT_ACTIVE_TAB', url: 'https://evil.example/x.pdf' }),
-    ).toEqual({ kind: 'PRINT_ACTIVE_TAB' });
   });
 
   it('accepts SET_CONFIG with a valid patch', () => {
@@ -73,42 +109,21 @@ describe('parseExtensionRequest', () => {
     expect(parseExtensionRequest({ type: 'PRINT_RECEIPT', id: 'x' })).toBeUndefined();
   });
 
-  it('lists the intents that change something', () => {
-    expect(WRITING_KINDS).toEqual([
-      'SET_CONFIG',
-      'PRINT_TEST',
-      'PRINT_DETECTED',
-      'DISMISS_DETECTED',
-      'PRINT_ACTIVE_TAB',
-      // A check changes nothing locally, but it reaches the network, and AC19
-      // means that must never happen without the user asking.
-      'CHECK_UPDATE',
-      'DOWNLOAD_UPDATE',
+  it('allowlists what a page may send, rather than denylisting', () => {
+    // Default-deny: an intent added later is refused to pages until listed.
+    // These carry no argument and reveal nothing a page does not know.
+    expect(PAGE_ALLOWED_KINDS).toEqual([
+      'GET_HOST_STATE',
+      'GET_ACTIVE_TAB',
+      'PING_HOST',
+      'LIST_PRINTERS',
+      'GET_CONFIG',
     ]);
+    for (const kind of ['SET_CONFIG', 'PREPARE_PREVIEW', 'PRINT_PREVIEW', 'RENDER_PREVIEW'] as const) {
+      expect(PAGE_ALLOWED_KINDS).not.toContain(kind);
+    }
   });
 
-  it('accepts the detected-receipt intents with an integer id', () => {
-    expect(parseExtensionRequest({ kind: 'LIST_DETECTED' })).toEqual({ kind: 'LIST_DETECTED' });
-    expect(parseExtensionRequest({ kind: 'PRINT_DETECTED', downloadId: 42 })).toEqual({
-      kind: 'PRINT_DETECTED',
-      downloadId: 42,
-    });
-    expect(parseExtensionRequest({ kind: 'DISMISS_DETECTED', downloadId: 0 })).toEqual({
-      kind: 'DISMISS_DETECTED',
-      downloadId: 0,
-    });
-  });
-
-  it('refuses a caller naming a file instead of a download id', () => {
-    // The worker holds the path it recorded itself; a caller names an id and
-    // nothing else, so nothing in a page can nominate a file to open.
-    expect(parseExtensionRequest({ kind: 'PRINT_DETECTED' })).toBeUndefined();
-    expect(
-      parseExtensionRequest({ kind: 'PRINT_DETECTED', path: '/etc/passwd' }),
-    ).toBeUndefined();
-    expect(parseExtensionRequest({ kind: 'PRINT_DETECTED', downloadId: '42' })).toBeUndefined();
-    expect(parseExtensionRequest({ kind: 'PRINT_DETECTED', downloadId: 1.5 })).toBeUndefined();
-  });
 });
 
 describe('parseConfigPatch', () => {
