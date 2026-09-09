@@ -149,7 +149,13 @@ describe('handleExtensionMessage - PING_HOST', () => {
 
 const CONFIG: ConfigData = {
   config: {
-    printer: { name: 'EPSON TM-T88V Receipt5', paperWidth: 80, printableWidth: 72, columns: 42 },
+    printer: {
+      kind: 'thermal',
+      name: 'EPSON TM-T88V Receipt5',
+      paperWidth: 80,
+      printableWidth: 72,
+      columns: 42,
+    },
     update: { repo: 'alexreu/booksy-receipt-bridge', token: '' },
     printing: { autoPrint: false, showPreview: true, confidenceThreshold: 0.9, allowedDirs: [] },
   },
@@ -292,7 +298,7 @@ describe('handleExtensionMessage - configuration', () => {
   it('forwards the patch to the host and returns what it stored', async () => {
     const client = createMockNativeHostClient({ replies: { SET_CONFIG: CONFIG } });
     const response = await handleExtensionMessage(
-      { kind: 'SET_CONFIG', patch: { printer: { name: 'EPSON TM-T88V Receipt5' } } },
+      { kind: 'SET_CONFIG', patch: { printer: { kind: 'thermal' as const, name: 'EPSON TM-T88V Receipt5' } } },
       { id: EXTENSION_ID },
       deps({ client }),
     );
@@ -300,7 +306,7 @@ describe('handleExtensionMessage - configuration', () => {
     expect(client.lastSent).toEqual({
       id: expect.any(String),
       type: 'SET_CONFIG',
-      payload: { printer: { name: 'EPSON TM-T88V Receipt5' } },
+      payload: { printer: { kind: 'thermal' as const, name: 'EPSON TM-T88V Receipt5' } },
     });
   });
 
