@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -90,7 +90,14 @@ describe('createLogger', () => {
 
   it('keeps working when the directory cannot be created', () => {
     // A locked-down machine must not stop the host from printing.
-    const log = createLogger({ dir: '/proc/definitely-not-writable/brb', now: fixedClock(AT) });
+    //
+    // A directory INSIDE A FILE, rather than a path that happens to be
+    // unwritable on this OS: /proc is writable-looking on Windows, where the
+    // runner created it happily and the test went red for the wrong reason.
+    // Creating a directory under a regular file fails everywhere.
+    const blocked = join(dir, 'un-fichier');
+    writeFileSync(blocked, 'pas un dossier');
+    const log = createLogger({ dir: join(blocked, 'brb'), now: fixedClock(AT) });
     expect(log.file).toBeUndefined();
     expect(() => log.error('toujours vivant')).not.toThrow();
     expect(stderrSpy).toHaveBeenCalled();
