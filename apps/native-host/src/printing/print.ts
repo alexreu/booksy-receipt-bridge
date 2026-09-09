@@ -55,12 +55,23 @@ export async function printTest(deps: PrintDeps): Promise<PrintOutcome<PrintTest
  * straight back so the caller can show them (plan section 31).
  */
 export async function printReceipt(
-  payload: { source: ReceiptSource; dedupeKey?: string; trigger?: 'user' | 'auto' },
+  payload: {
+    source: ReceiptSource;
+    dedupeKey?: string;
+    printerName?: string;
+    trigger?: 'user' | 'auto';
+  },
   deps: PrintDeps,
 ): Promise<PrintOutcome<PrintReceiptData>> {
   const trigger = payload.trigger ?? 'user';
 
-  if (deps.config.printer.name === '') {
+  // A printer chosen in the preview applies to this job only: it must not
+  // silently become the stored default. The column count is a property of the
+  // paper, so it stays in the configuration.
+  const printerName = payload.printerName ?? deps.config.printer.name;
+  const { columns } = deps.config.printer;
+
+  if (printerName === '') {
     return { ok: false, code: 'PRINTER_NOT_FOUND', message: 'Aucune imprimante configurée.' };
   }
 
@@ -132,10 +143,12 @@ export async function printReceipt(
     return { ok: true, data: { ...base, duplicate: true } };
   }
 
-  const { bytes, unmapped } = emitEscPos(
-    buildTicketLayout(receipt, { columns: deps.config.printer.columns }),
-  );
-  const result = await deps.printer.printRaw(bytes, printerConfigOf(deps.config));
+  const { bytes, unmapped } = emitEscPos(buildTicketLayout(receipt, { columns }));
+  const result = await deps.printer.printRaw(bytes, {
+    ...printerConfigOf(deps.config),
+    name: printerName,
+    columns,
+  });
 
   if (!result.ok) {
     deps.log.error(`Impression échouée : ${result.error ?? 'raison inconnue'}`);

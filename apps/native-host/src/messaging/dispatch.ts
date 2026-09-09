@@ -6,6 +6,7 @@ import {
   type Clock,
   type ConfigData,
   type ListPrintersData,
+  type RenderedReceipt,
   type NativeMessageType,
   type NativeResponse,
   type PingData,
@@ -14,7 +15,7 @@ import {
 import { parseNativeMessage } from '@brb/shared/schemas';
 import type { Printer, PrinterAdapter } from '@brb/printer';
 import { BooksyParseError, parseBooksyReceipt } from '@brb/booksy-parser';
-import { emitHtml, emitText } from '@brb/receipt-renderer';
+import { decodeToSvg, emitEscPos, emitHtml, emitText } from '@brb/receipt-renderer';
 import { buildTicketLayout } from '@brb/ticket-layout';
 import { loadConfig, saveConfig, type ConfigState } from '../config/config.ts';
 import type { Logger } from '../logging/logger.ts';
@@ -146,26 +147,38 @@ export async function dispatch(raw: unknown, context: HostContext): Promise<Nati
         try {
           const { receipt, confidence, warnings } = await parseBooksyReceipt(source.bytes);
           const { printer } = context.config.config;
-          const layout = buildTicketLayout(receipt, { columns: printer.columns });
+          const { columns } = printer;
+          const layout = buildTicketLayout(receipt, { columns });
+
+          // The svg form decodes the bytes that would really be sent, so what
+          // the user approves is the job itself and not a lookalike.
+          const escpos =
+            message.payload.format === 'svg' ? emitEscPos(layout) : undefined;
+
           const content =
-            message.payload.format === 'html'
-              ? emitHtml(layout, {
-                  paperWidth: printer.paperWidth,
-                  printableWidth: printer.printableWidth,
-                  title: `Reçu ${receipt.ticket.number}`,
-                })
-              : emitText(layout);
-          return {
-            id: message.id,
-            success: true,
-            data: {
-              format: message.payload.format,
-              content,
-              ticketNumber: receipt.ticket.number,
-              confidence,
-              warnings,
-            },
+            escpos !== undefined
+              ? decodeToSvg(escpos.bytes, columns)
+              : message.payload.format === 'html'
+                ? emitHtml(layout, {
+                    paperWidth: printer.paperWidth,
+                    printableWidth: printer.printableWidth,
+                    title: `Reçu ${receipt.ticket.number}`,
+                  })
+                : emitText(layout);
+
+          const data: RenderedReceipt = {
+            format: message.payload.format,
+            content,
+            ticketNumber: receipt.ticket.number,
+            confidence,
+            warnings,
+            columns,
+            ...(escpos === undefined ? {} : { byteCount: escpos.bytes.length }),
+            ...(escpos === undefined || escpos.unmapped.length === 0
+              ? {}
+              : { unmapped: escpos.unmapped }),
           };
+          return { id: message.id, success: true, data };
         } catch (error) {
           return parseFailure(message.id, error, context);
         }

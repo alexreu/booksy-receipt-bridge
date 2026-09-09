@@ -52,7 +52,10 @@ export const NativeMessageSchema = z.discriminatedUnion('type', [
   z.object({
     id,
     type: z.literal('RENDER_RECEIPT'),
-    payload: z.object({ source: ReceiptSourceSchema, format: z.enum(['html', 'text']) }),
+    payload: z.object({
+      source: ReceiptSourceSchema,
+      format: z.enum(['html', 'text', 'svg']),
+    }),
   }),
   z.object({
     id,
@@ -60,6 +63,7 @@ export const NativeMessageSchema = z.discriminatedUnion('type', [
     payload: z.object({
       source: ReceiptSourceSchema,
       dedupeKey: z.string().optional(),
+      printerName: z.string().optional(),
       trigger: z.enum(['user', 'auto']).optional(),
     }),
   }),

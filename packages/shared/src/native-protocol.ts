@@ -62,7 +62,15 @@ export type NativeMessage =
   | {
       id: string;
       type: 'RENDER_RECEIPT';
-      payload: { source: ReceiptSource; format: 'html' | 'text' };
+      payload: {
+        source: ReceiptSource;
+        /**
+         * `svg` decodes the ESC/POS bytes that would actually be sent, so the
+         * preview is a picture of the real job rather than a second rendering
+         * of the same layout. `html` and `text` re-render the layout.
+         */
+        format: 'html' | 'text' | 'svg';
+      };
     }
   | {
       id: string;
@@ -71,6 +79,13 @@ export type NativeMessage =
         source: ReceiptSource;
         /** Guards against double prints (plan section 54). */
         dedupeKey?: string;
+        /**
+         * Print to this queue instead of the configured one.
+         *
+         * Chosen in the preview without writing it to the configuration: a
+         * one-off choice should not silently become the default.
+         */
+        printerName?: string;
         /**
          * Who asked. `auto` makes the host enforce its confidence threshold and
          * refuse below it (plan section 34); `user` prints what was read and
@@ -164,6 +179,21 @@ export interface ConfigData {
   config: BridgeConfig;
   present: boolean;
   error?: string;
+}
+
+/** `RENDER_RECEIPT` reply. */
+export interface RenderedReceipt {
+  format: 'html' | 'text' | 'svg';
+  content: string;
+  ticketNumber: string;
+  confidence: number;
+  warnings: ParseWarning[];
+  /** Characters the code page cannot represent, so the preview can warn. */
+  unmapped?: string[];
+  /** Size of the job that would be sent, in bytes. */
+  byteCount?: number;
+  /** Columns the preview was rendered at. */
+  columns: number;
 }
 
 /** `PRINT_TEST` reply. */
