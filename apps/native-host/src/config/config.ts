@@ -15,6 +15,7 @@ export const BridgeConfigSchema = z.object({
   printer: z.object({
     /** Empty until configured. No model is hardcoded (plan section 65). */
     name: z.string().default(''),
+    kind: z.enum(['thermal', 'paper']).default('thermal'),
     paperWidth: z.number().positive().default(80),
     printableWidth: z.number().positive().default(72),
     columns: z.number().int().positive().default(42),

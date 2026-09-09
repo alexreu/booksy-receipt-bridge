@@ -30,7 +30,7 @@ const OFFLINE: HostState = {
 };
 
 const CONFIG: BridgeConfig = {
-  printer: { name: 'EPSON TM-T88V Receipt5', paperWidth: 80, printableWidth: 72, columns: 42 },
+  printer: { kind: 'thermal' as const, name: 'EPSON TM-T88V Receipt5', paperWidth: 80, printableWidth: 72, columns: 42 },
   update: { repo: 'alexreu/booksy-receipt-bridge', token: '' },
   printing: { autoPrint: false, showPreview: true, confidenceThreshold: 0.9, allowedDirs: [] },
 };
@@ -82,6 +82,7 @@ describe('formValuesOf', () => {
   it('flattens the config into form fields', () => {
     expect(formValuesOf(CONFIG)).toEqual({
       printerName: 'EPSON TM-T88V Receipt5',
+      printerKind: 'thermal',
       paperWidth: 80,
       printableWidth: 72,
       columns: 42,
@@ -97,6 +98,7 @@ describe('buildPatch', () => {
     expect(built.patch).toEqual({
       printer: {
         name: 'EPSON TM-T88V Receipt5',
+        kind: 'thermal',
         paperWidth: 80,
         printableWidth: 72,
         columns: 42,

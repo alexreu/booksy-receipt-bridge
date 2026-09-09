@@ -16,6 +16,9 @@ describe('DEFAULT_CONFIG', () => {
   it('describes 80 mm paper with a 72 mm printable width and 42 columns', () => {
     expect(DEFAULT_CONFIG.printer).toEqual({
       name: '',
+      // Thermal until told otherwise: an ordinary printer is the exception,
+      // and sending it ESC/POS by default would waste a sheet to say so.
+      kind: 'thermal',
       paperWidth: 80,
       printableWidth: 72,
       columns: 42,

@@ -45,4 +45,10 @@ export interface PrinterAdapter {
   list(): Promise<Printer[]>;
   printRaw(bytes: Uint8Array, config: PrinterConfig): Promise<PrintResult>;
   printTest(config: PrinterConfig): Promise<PrintResult>;
+  /**
+   * Print a document the driver is meant to render - a PDF, for an ordinary
+   * printer. Optional: a spooler that can only be spoken to in RAW says so by
+   * not implementing it, rather than by pretending and printing nothing.
+   */
+  printDocument?(bytes: Uint8Array, config: PrinterConfig): Promise<PrintResult>;
 }

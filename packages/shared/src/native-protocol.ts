@@ -33,9 +33,19 @@ export type ReceiptSource =
   | { kind: 'path'; path: string }
   | { kind: 'bytes'; base64: string };
 
+/**
+ * What the chosen queue is, which decides what is sent to it.
+ *
+ * `thermal` gets ESC/POS bytes. `paper` gets a PDF holding the same ticket at
+ * its real width in the corner of an A4 sheet: control codes sent to a laser
+ * print as gibberish, and nothing in the queue's name says which it is.
+ */
+export type PrinterKind = 'thermal' | 'paper';
+
 export interface ConfigPatch {
   printer?: {
     name?: string;
+    kind?: PrinterKind;
     paperWidth?: number;
     printableWidth?: number;
     columns?: number;
@@ -144,6 +154,8 @@ export interface BridgeConfig {
   printer: {
     /** Empty until configured. No model is hardcoded (plan section 65). */
     name: string;
+    /** Thermal gets ESC/POS; paper gets the ticket rendered on a sheet. */
+    kind: PrinterKind;
     paperWidth: number;
     printableWidth: number;
     columns: number;

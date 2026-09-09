@@ -1,4 +1,4 @@
-import type { BridgeConfig, ConfigPatch, Printer } from '@brb/shared';
+import type { BridgeConfig, ConfigPatch, Printer, PrinterKind } from '@brb/shared';
 import type { HostState } from '../messaging/state.ts';
 import { describeHostState } from '../messaging/state.ts';
 import { PRETEND_ADAPTERS } from '../preview/view.ts';
@@ -58,6 +58,7 @@ function printerNote(
 
 export interface FormValues {
   printerName: string;
+  printerKind: PrinterKind;
   paperWidth: number;
   printableWidth: number;
   columns: number;
@@ -66,6 +67,7 @@ export interface FormValues {
 export function formValuesOf(config: BridgeConfig): FormValues {
   return {
     printerName: config.printer.name,
+    printerKind: config.printer.kind,
     paperWidth: config.printer.paperWidth,
     printableWidth: config.printer.printableWidth,
     columns: config.printer.columns,
@@ -101,6 +103,7 @@ export function buildPatch(
     patch: {
       printer: {
         name: values.printerName,
+        kind: values.printerKind,
         paperWidth: values.paperWidth,
         printableWidth: values.printableWidth,
         columns: values.columns,

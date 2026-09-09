@@ -1,5 +1,5 @@
 import { BooksyParseError, parseBooksyReceipt } from '@brb/booksy-parser';
-import { emitEscPos } from '@brb/receipt-renderer';
+import { emitEscPos, emitPdf } from '@brb/receipt-renderer';
 import { buildTicketLayout } from '@brb/ticket-layout';
 import type { PrintReceiptData, PrintTestData, ReceiptSource } from '@brb/shared';
 import type { BridgeErrorCode, Clock } from '@brb/shared';
@@ -143,12 +143,34 @@ export async function printReceipt(
     return { ok: true, data: { ...base, duplicate: true } };
   }
 
-  const { bytes, unmapped } = emitEscPos(buildTicketLayout(receipt, { columns }));
-  const result = await deps.printer.printRaw(bytes, {
-    ...printerConfigOf(deps.config),
-    name: printerName,
-    columns,
-  });
+  const layout = buildTicketLayout(receipt, { columns });
+  const target = { ...printerConfigOf(deps.config), name: printerName, columns };
+
+  // An ordinary printer is sent a rendered document, not ESC/POS: control
+  // codes reach a laser as text and come out as gibberish. Same layout, same
+  // width - drawn on a sheet instead of a roll.
+  const printDocument = deps.printer.printDocument?.bind(deps.printer);
+  const paper = deps.config.printer.kind === 'paper';
+  if (paper && printDocument === undefined) {
+    return {
+      ok: false,
+      code: 'PRINT_FAILED',
+      message: "Ce pilote ne sait imprimer qu'en mode thermique sur ce poste.",
+    };
+  }
+
+  const { bytes, unmapped } = emitEscPos(layout);
+  const result =
+    paper && printDocument !== undefined
+      ? await printDocument(
+          emitPdf(layout, {
+            paperWidth: deps.config.printer.paperWidth,
+            printableWidth: deps.config.printer.printableWidth,
+            title: `Ticket ${receipt.ticket.number}`,
+          }),
+          target,
+        )
+      : await deps.printer.printRaw(bytes, target);
 
   if (!result.ok) {
     deps.log.error(`Impression échouée : ${result.error ?? 'raison inconnue'}`);

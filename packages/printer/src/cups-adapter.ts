@@ -79,6 +79,44 @@ export function createCupsPrinterAdapter(options: CupsAdapterOptions = {}): Prin
     }
   };
 
+  /**
+   * Let the driver render the document, which is the opposite of printRaw.
+   *
+   * No `-o raw`: an ordinary printer must run the file through its own
+   * pipeline, and `media=A4` says which sheet it lands on.
+   */
+  const printDocument = async (
+    bytes: Uint8Array,
+    config: PrinterConfig,
+  ): Promise<PrintResult> => {
+    if (config.name === '') return { ok: false, error: 'Aucune imprimante configurée.' };
+
+    let directory: string | undefined;
+    try {
+      directory = await mkdtemp(join(tmpdir(), 'brb-print-'));
+      const payload = join(directory, 'ticket.pdf');
+      await writeFile(payload, bytes);
+
+      const output = await run('lp', [
+        '-d',
+        config.name,
+        '-o',
+        'media=A4',
+        '-t',
+        'Booksy receipt',
+        payload,
+      ]);
+      const jobId = parseJobId(output);
+      return { ok: true, bytesSent: bytes.length, ...(jobId === undefined ? {} : { jobId }) };
+    } catch (error) {
+      return { ok: false, error: describe(error) };
+    } finally {
+      if (directory !== undefined) {
+        await rm(directory, { recursive: true, force: true }).catch(() => undefined);
+      }
+    }
+  };
+
   const printTest = async (config: PrinterConfig): Promise<PrintResult> => {
     const { bytes, unmapped } = emitEscPos(buildTestTicketLayout(config), {
       ...(config.cutFeedDots === undefined ? {} : { cutFeedDots: config.cutFeedDots }),
@@ -87,7 +125,7 @@ export function createCupsPrinterAdapter(options: CupsAdapterOptions = {}): Prin
     return { ...result, unmapped };
   };
 
-  return { list, printRaw, printTest };
+  return { list, printRaw, printTest, printDocument };
 }
 
 /** `lpstat -e`: one destination per line, no prose, any locale. */

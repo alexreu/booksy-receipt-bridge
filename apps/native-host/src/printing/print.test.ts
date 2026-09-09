@@ -311,3 +311,76 @@ describe('printReceipt - warnings pass straight through', () => {
     expect(printed).not.toContain('TOTAL TTC                          30,00');
   });
 });
+
+describe('printReceipt - an ordinary printer', () => {
+  /** A driver that records what it was handed, and how. */
+  function recordingAdapter(withDocument: boolean) {
+    const sent: { how: 'raw' | 'document'; bytes: Uint8Array }[] = [];
+    const base = {
+      list: () => Promise.resolve([{ name: PRINTER }]),
+      printRaw: (bytes: Uint8Array) => {
+        sent.push({ how: 'raw' as const, bytes });
+        return Promise.resolve({ ok: true, bytesSent: bytes.length });
+      },
+      printTest: () => Promise.resolve({ ok: true }),
+    };
+    const adapter = withDocument
+      ? {
+          ...base,
+          printDocument: (bytes: Uint8Array) => {
+            sent.push({ how: 'document' as const, bytes });
+            return Promise.resolve({ ok: true, bytesSent: bytes.length });
+          },
+        }
+      : base;
+    return { adapter, sent };
+  }
+
+  it('sends a rendered PDF, never ESC/POS, when the printer is not thermal', async () => {
+    // Control codes reach a laser as text and come out as gibberish. The
+    // layout is the same; only what carries it changes.
+    const { adapter, sent } = recordingAdapter(true);
+    const outcome = await printReceipt(
+      { source: { kind: 'path', path: receiptPath } },
+      deps({
+        printer: adapter,
+        config: config({ printer: { ...DEFAULT_CONFIG.printer, name: PRINTER, kind: 'paper' } }),
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    expect(sent.map((job) => job.how)).toEqual(['document']);
+    const header = Array.from((sent[0]?.bytes ?? new Uint8Array()).slice(0, 8), (byte) =>
+      String.fromCharCode(byte),
+    ).join('');
+    expect(header).toBe('%PDF-1.4');
+  });
+
+  it('sends ESC/POS when the printer is thermal', async () => {
+    const { adapter, sent } = recordingAdapter(true);
+    const outcome = await printReceipt(
+      { source: { kind: 'path', path: receiptPath } },
+      deps({ printer: adapter }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    expect(sent.map((job) => job.how)).toEqual(['raw']);
+    expect(sent[0]?.bytes[0]).toBe(0x1b);
+  });
+
+  it('says so rather than printing gibberish when the driver cannot render', async () => {
+    // A spooler that only speaks RAW says so by not implementing the method;
+    // falling back to ESC/POS would waste a sheet to prove a point.
+    const { adapter, sent } = recordingAdapter(false);
+    const outcome = await printReceipt(
+      { source: { kind: 'path', path: receiptPath } },
+      deps({
+        printer: adapter,
+        config: config({ printer: { ...DEFAULT_CONFIG.printer, name: PRINTER, kind: 'paper' } }),
+      }),
+    );
+
+    expect(outcome).toMatchObject({ ok: false, code: 'PRINT_FAILED' });
+    expect(sent).toEqual([]);
+  });
+});

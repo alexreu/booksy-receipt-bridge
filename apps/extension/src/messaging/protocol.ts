@@ -164,6 +164,11 @@ export function parseConfigPatch(raw: unknown): ConfigPatch | undefined {
     const source = printer;
     const target: NonNullable<ConfigPatch['printer']> = {};
     if (!assignString(source, target, 'name')) return undefined;
+    const kind = source['kind'];
+    if (kind !== undefined) {
+      if (kind !== 'thermal' && kind !== 'paper') return undefined;
+      target.kind = kind;
+    }
     for (const key of ['paperWidth', 'printableWidth', 'columns'] as const) {
       if (!assignNumber(source, target, key)) return undefined;
     }

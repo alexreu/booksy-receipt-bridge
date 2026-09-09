@@ -24,6 +24,8 @@ async function ask(request: ExtensionRequest): Promise<ExtensionResponse> {
 function readForm(): FormValues {
   return {
     printerName: element<HTMLSelectElement>('printer').value,
+    printerKind:
+      element<HTMLSelectElement>('printer-kind').value === 'paper' ? 'paper' : 'thermal',
     paperWidth: element<HTMLInputElement>('paper-width').valueAsNumber,
     printableWidth: element<HTMLInputElement>('printable-width').valueAsNumber,
     columns: element<HTMLInputElement>('columns').valueAsNumber,
@@ -44,6 +46,7 @@ function writeForm(values: FormValues, printers: readonly Printer[]): void {
   select.replaceChildren(...options);
   select.value = values.printerName;
 
+  element<HTMLSelectElement>('printer-kind').value = values.printerKind;
   element<HTMLInputElement>('paper-width').valueAsNumber = values.paperWidth;
   element<HTMLInputElement>('printable-width').valueAsNumber = values.printableWidth;
   element<HTMLInputElement>('columns').valueAsNumber = values.columns;
