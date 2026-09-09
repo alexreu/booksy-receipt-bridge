@@ -370,6 +370,43 @@ Quatre choses découvertes en implémentant, à retenir pour les phases suivante
 
 ---
 
+## 18. Phase 12 — les vraies imprimantes du poste, livrée le 2026-09-09
+
+624 tests, 42 fichiers, quatre portes à exit 0.
+
+### Un pilote CUPS, pour que le développement voie du vrai matériel
+
+Windows reste la cible ; le poste de développement est un Mac, et la liste n'y
+montrait que des files fictives. `createCupsPrinterAdapter` liste les
+destinations réelles et envoie le travail par `lp -d … -o raw` — `raw` est le
+pendant exact du `datatype RAW` de Windows : aucun pilote ne redessine, aucune
+mise en page ne redimensionne le ticket. Vérifié sur ce poste :
+`[{ "name": "Canon_TR4600_series", "isDefault": true }]`.
+
+**Analysé sans lire de prose.** `lpstat -p` écrit des phrases dans la langue du
+système (« l'imprimante X est inactive ») ; on n'analyse pas ça. `lpstat -e`
+donne un nom par ligne dans toutes les langues, et le défaut est trouvé en
+cherchant un nom **déjà connu** à l'intérieur de `lpstat -d` plutôt qu'en
+découpant sa phrase. Les tests couvrent le français et l'anglais.
+
+### « Ce ne sont pas de vraies imprimantes » n'est plus dit à tort
+
+L'avertissement se déclenchait sur « tout pilote autre que windows ». Les files
+CUPS sont, elles, le matériel réel du poste : la règle nomme désormais les
+pilotes qui inventent leurs files (`mock`, `file`) au lieu de les déduire par
+la négative.
+
+### Ce qu'une imprimante classique peut prouver, et ce qu'elle ne peut pas
+
+Le travail envoyé est de l'ESC/POS : des octets destinés à une tête thermique.
+Une laser ou un jet d'encre les recevra en `raw` et sortira des codes de
+contrôle imprimés comme du texte. Le trajet complet — onglet, aperçu, choix de
+la file, spouleur, travail accepté — est donc vérifiable sur n'importe quelle
+imprimante ; **la sortie papier, non**. Seule une imprimante ESC/POS rend un
+ticket lisible.
+
+---
+
 ## 17. Phase 11 — un seul chemin : l'onglet, l'aperçu, l'impression, livrée le 2026-09-08
 
 609 tests, 41 fichiers, quatre portes à exit 0. Extension : 25,7 kB — 9 kB de
