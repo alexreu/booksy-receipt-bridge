@@ -79,9 +79,15 @@ la décompresser, puis, **sans droits administrateur** :
 
 | Système | Archive | Commande |
 |---|---|---|
-| Windows | `…-windows.zip` | `.\Install.ps1` dans PowerShell |
-| macOS | `…-macos.zip` | `./install.sh` |
-| Linux | `…-linux.zip` | `./install.sh` |
+| Windows | `…-windows.zip` | `.\booksy-receipt-bridge.exe install` |
+| macOS | `…-macos.zip` | `./booksy-receipt-bridge install` |
+| Linux | `…-linux.zip` | `./booksy-receipt-bridge install` |
+
+**Le service s'installe lui-même.** Pas de PowerShell : sur un poste
+d'entreprise, la stratégie d'exécution refuse souvent les scripts, et un fichier
+téléchargé porte en plus une marque qui le bloque. Un exécutable n'est soumis ni
+à l'une ni à l'autre. `Install.ps1` et `install.sh` restent livrés pour qui les
+préfère.
 
 Le service s'installe dans le profil de l'utilisateur — `%LOCALAPPDATA%` sous
 Windows, `~/.local/share/BooksyReceiptBridge` ailleurs — et l'extension est
@@ -98,6 +104,9 @@ Ensuite, une fois :
    téléchargements casserait l'installation.
 2. Popup de l'extension → « Service connecté ».
 3. Paramètres → choisir l'imprimante et son type.
+
+Pour retirer : `booksy-receipt-bridge uninstall`. La configuration et les
+journaux sont conservés.
 
 Détail et dépannage : [installer/README.md](installer/README.md).
 

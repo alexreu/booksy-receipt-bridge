@@ -15,6 +15,8 @@ import { createHost } from './host.ts';
 import { silentLogger } from './logging/logger.ts';
 import { loadConfig, saveConfig } from './config/config.ts';
 import { configPath, dataDir, logDir } from './paths.ts';
+import { install, uninstall } from './install/install.ts';
+import { parseExtensionIds } from './install/targets.ts';
 import { HOST_VERSION } from './version.ts';
 
 const USAGE = `booksy-receipt-bridge ${HOST_VERSION}
@@ -27,6 +29,9 @@ Sans argument, le host parle le protocole Native Messaging sur stdin/stdout.
   config set <clé> <val>   printer.name, printer.columns, printing.autoPrint, ...
   paths                    Affiche les dossiers de données et de logs
   update [--download]      Cherche une version plus récente sur GitHub
+  install [--id a,b]       Installe le service et l'enregistre auprès des
+                           navigateurs, sans PowerShell ni élévation
+  uninstall                Retire le service et ses enregistrements
   parse <pdf>              Lit un reçu Booksy et affiche le Receipt en JSON
   ticket <pdf>             Affiche le ticket 80 mm en texte
   html <pdf> [--out f]     Écrit l'aperçu HTML
@@ -74,6 +79,12 @@ export async function runCli(argv: readonly string[]): Promise<number> {
 
     case 'config':
       return configCommand(rest);
+
+    case 'install':
+      return runInstall(rest);
+
+    case 'uninstall':
+      return runUninstall();
 
     case 'parse':
     case 'ticket':
@@ -220,4 +231,45 @@ function out(text: string): void {
 
 function err(text: string): void {
   process.stderr.write(text);
+}
+
+/** The extension this build is meant to talk to. */
+const DEFAULT_EXTENSION_ID = 'ndfcmfgnelpdjgpmaelpdgoccmjcpdjm';
+
+async function runInstall(argv: readonly string[]): Promise<number> {
+  const flag = argv.indexOf('--id');
+  const ids =
+    flag === -1 ? [DEFAULT_EXTENSION_ID] : parseExtensionIds(argv[flag + 1] ?? '');
+
+  out('\nBooksy Receipt Bridge — installation\n\n');
+  const result = await install({ extensionIds: ids, log: (message) => out(`${message}\n`) });
+
+  if (!result.ok) {
+    err(`\n${result.error ?? 'Installation impossible.'}\n`);
+    return 1;
+  }
+
+  const load = result.extensionPath ?? '<dossier extension de la livraison>';
+  out(
+    `\nInstallation terminée.\n\n` +
+      `  1. Ouvrez chrome://extensions (Edge : edge://extensions), activez le\n` +
+      `     mode développeur, puis « Charger l'extension non empaquetée » et\n` +
+      `     choisissez EXACTEMENT ce dossier :\n\n` +
+      `       ${load}\n\n` +
+      `  2. Ouvrez le popup de l'extension : « Service connecté ».\n` +
+      `  3. Choisissez l'imprimante dans Paramètres.\n\n` +
+      `Désinstallation : "${result.executable}" uninstall\n`,
+  );
+  return 0;
+}
+
+async function runUninstall(): Promise<number> {
+  out('\nBooksy Receipt Bridge — désinstallation\n\n');
+  const result = await uninstall({ log: (message) => out(`${message}\n`) });
+  out(
+    `\nTerminé. La configuration et les journaux sont conservés.\n` +
+      `Retirez aussi l'extension du navigateur, sur chrome://extensions.\n`,
+  );
+  void result;
+  return 0;
 }

@@ -14,16 +14,28 @@ Uninstall.ps1               désinstallation
 
 ## Installer
 
-Sous Windows, dans PowerShell, **sans droits administrateur** :
+Le service s'installe lui-même, **sans droits administrateur et sans
+PowerShell** — c'est la voie recommandée :
 
 ```powershell
-.\Install.ps1
+.\booksy-receipt-bridge.exe install
 ```
 
-Sous macOS ou Linux :
-
 ```sh
-./install.sh
+./booksy-receipt-bridge install
+```
+
+Pourquoi : sur un poste d'entreprise, la stratégie d'exécution PowerShell
+refuse souvent les scripts (« l'exécution de scripts est désactivée sur ce
+système »), et un fichier téléchargé porte une marque « venu d'Internet » qui le
+bloque même quand la stratégie l'autorise. Un exécutable n'est soumis ni à l'une
+ni à l'autre.
+
+Les scripts restent livrés pour qui les préfère : `.\Install.ps1` sous Windows,
+`./install.sh` sous macOS et Linux. Si PowerShell refuse de les lancer :
+
+```powershell
+Unblock-File .\Install.ps1; powershell -ExecutionPolicy Bypass -File .\Install.ps1
 ```
 
 L'exécutable va sous `%LOCALAPPDATA%\Programs\BooksyReceiptBridge`, et

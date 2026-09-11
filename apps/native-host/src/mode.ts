@@ -22,6 +22,8 @@ export const CLI_COMMANDS = [
   'html',
   'escpos',
   'update',
+  'install',
+  'uninstall',
   '-h',
   '--help',
   '--version',
