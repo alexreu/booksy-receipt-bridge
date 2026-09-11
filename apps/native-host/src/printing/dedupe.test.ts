@@ -1,6 +1,6 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { fixedClock } from '@brb/shared';
 import {
@@ -73,7 +73,15 @@ describe('checkAndRecord', () => {
   });
 
   it('does not fail when the history cannot be written', () => {
-    const unwritable = '/proc/definitely-not-writable/history.json';
+    // A directory INSIDE A FILE, not a path that happens to be unwritable on
+    // this system. `/proc/...` was used here, and on Linux `mkdir -p` under it
+    // does not fail - it BLOCKS. One test file never reported, the suite sat
+    // there, and the job was killed after fifteen minutes; before the timeout
+    // existed, after six hours. Creating a directory under a regular file
+    // fails immediately, everywhere.
+    const blocked = join(dirname(path), 'un-fichier');
+    writeFileSync(blocked, 'pas un dossier');
+    const unwritable = join(blocked, 'history.json');
     expect(() => checkAndRecord('k', { path: unwritable, windowMs: 1000, now: fixedClock(1_000) })).not.toThrow();
   });
 });
