@@ -72,15 +72,25 @@ export function assetUrl(root: string, directory: string): string {
   return `${pathToFileURL(join(root, directory)).href}/`;
 }
 
+/**
+ * The worker to point pdf.js at - ONLY when it was shipped beside the binary.
+ *
+ * In a normal Node run pdf.js finds its own and uses an in-process one, which
+ * is all this package needs: it extracts text and never renders. Naming the
+ * file from node_modules made pdf.js spawn a real worker thread, and spawning
+ * one from INSIDE a vitest worker deadlocked on Linux - the suite stalled
+ * after eighteen files and sat there until the job was killed, for fifteen
+ * minutes here and six hours the day the timeout did not exist yet. Windows
+ * and macOS never showed it.
+ *
+ * The bundled executable still needs the explicit path: it has no node_modules
+ * to resolve, which is the failure this function was written for.
+ */
 export function pdfjsWorkerPath(env?: NodeJS.ProcessEnv): string | undefined {
-  const root = pdfjsAssetRoot(env);
-  const candidates = [
-    // Shipped flat beside the executable by the installer.
-    join(root, 'pdf.worker.mjs'),
-    // The layout inside the installed npm package, used in development.
-    join(root, 'legacy', 'build', 'pdf.worker.mjs'),
-  ];
-  return candidates.find((candidate) => existsSync(candidate));
+  // Flat beside the executable, as the installer ships it. No fallback into
+  // node_modules: that layout means a development run, where pdf.js copes.
+  const beside = join(pdfjsAssetRoot(env), 'pdf.worker.mjs');
+  return existsSync(beside) ? beside : undefined;
 }
 
 export async function inspectPdf(data: Uint8Array): Promise<PdfInspection> {
