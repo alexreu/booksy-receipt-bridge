@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { install, inspectSource, uninstall, NATIVE_HOST_NAME } from './install.ts';
 import { installDir, installTargets, manifestContent, parseExtensionIds } from './targets.ts';
@@ -64,9 +64,11 @@ describe('installTargets', () => {
 });
 
 describe('installDir', () => {
-  it('stays inside the user profile on every platform', () => {
+  it('stays inside the user profile, spelled for the target platform', () => {
+    // Literal separators on both sides: the point is that the answer follows
+    // the platform asked about, not the one the test happens to run on.
     expect(installDir({ platform: 'win32', home: 'C:\\Users\\x' }, { LOCALAPPDATA: 'C:\\L' })).toBe(
-      join('C:\\L', 'Programs', 'BooksyReceiptBridge'),
+      'C:\\L\\Programs\\BooksyReceiptBridge',
     );
     expect(installDir({ platform: 'darwin', home: '/Users/x' })).toBe(
       '/Users/x/.local/share/BooksyReceiptBridge',
@@ -113,7 +115,7 @@ describe('install', () => {
   it('copies the service and the extension into the profile, and registers', async () => {
     stageDelivery();
     // One browser profile that exists; the others do not.
-    mkdirSync(join(home, '.config', 'google-chrome'), { recursive: true });
+    mkdirSync(posix.join(home, '.config', 'google-chrome'), { recursive: true });
 
     const result = await install({
       source,
@@ -125,21 +127,20 @@ describe('install', () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(existsSync(join(home, '.local/share/BooksyReceiptBridge/booksy-receipt-bridge'))).toBe(
-      true,
-    );
-    expect(result.extensionPath).toBe(join(home, '.local/share/BooksyReceiptBridge/extension'));
+    const installed = posix.join(home, '.local/share/BooksyReceiptBridge');
+    expect(existsSync(posix.join(installed, 'booksy-receipt-bridge'))).toBe(true);
+    expect(result.extensionPath).toBe(posix.join(installed, 'extension'));
     expect(result.registered).toEqual(['Chrome']);
 
     const written = JSON.parse(
       readFileSync(
-        join(home, '.config/google-chrome/NativeMessagingHosts', `${NATIVE_HOST_NAME}.json`),
+        posix.join(home, '.config/google-chrome/NativeMessagingHosts', `${NATIVE_HOST_NAME}.json`),
         'utf8',
       ),
     ) as { path: string; allowed_origins: string[] };
     // The manifest points at the INSTALLED copy, not at the archive the user
     // is about to delete.
-    expect(written.path).toBe(join(home, '.local/share/BooksyReceiptBridge/booksy-receipt-bridge'));
+    expect(written.path).toBe(posix.join(installed, 'booksy-receipt-bridge'));
     expect(written.allowed_origins).toEqual([`chrome-extension://${ID}/`]);
   });
 
@@ -154,7 +155,7 @@ describe('install', () => {
       log: () => undefined,
     });
     expect(result.registered).toEqual([]);
-    expect(existsSync(join(home, '.config', 'chromium'))).toBe(false);
+    expect(existsSync(posix.join(home, '.config', 'chromium'))).toBe(false);
   });
 
   it('refuses to write a manifest that authorises nobody', async () => {
@@ -184,7 +185,7 @@ describe('install', () => {
       extensionIds: [ID],
       log: () => undefined,
     });
-    const installed = join(home, '.local/share/BooksyReceiptBridge');
+    const installed = posix.join(home, '.local/share/BooksyReceiptBridge');
     const viaLink = join(root, 'lien');
     symlinkSync(installed, viaLink);
 
@@ -213,7 +214,7 @@ describe('install', () => {
       extensionIds: [ID],
       log: () => undefined,
     });
-    const installed = join(home, '.local/share/BooksyReceiptBridge');
+    const installed = posix.join(home, '.local/share/BooksyReceiptBridge');
 
     const again = await install({
       source: installed,
@@ -225,14 +226,14 @@ describe('install', () => {
     });
 
     expect(again.ok).toBe(true);
-    expect(existsSync(join(installed, 'extension', 'manifest.json'))).toBe(true);
+    expect(existsSync(posix.join(installed, 'extension', 'manifest.json'))).toBe(true);
   });
 });
 
 describe('uninstall', () => {
   it('removes the files and the registrations, and keeps the configuration', async () => {
     stageDelivery();
-    mkdirSync(join(home, '.config', 'google-chrome'), { recursive: true });
+    mkdirSync(posix.join(home, '.config', 'google-chrome'), { recursive: true });
     await install({
       source,
       home,
@@ -242,16 +243,16 @@ describe('uninstall', () => {
       log: () => undefined,
     });
 
-    const config = join(home, '.config', 'BooksyReceiptBridge');
+    const config = posix.join(home, '.config', 'BooksyReceiptBridge');
     mkdirSync(config, { recursive: true });
-    writeFileSync(join(config, 'config.json'), '{}');
+    writeFileSync(posix.join(config, 'config.json'), '{}');
 
     const result = await uninstall({ home, platform: 'linux', env: {}, log: () => undefined });
 
     expect(result.removed).toEqual(['Chrome']);
-    expect(existsSync(join(home, '.local/share/BooksyReceiptBridge'))).toBe(false);
+    expect(existsSync(posix.join(home, '.local/share/BooksyReceiptBridge'))).toBe(false);
     // The user's printer setup survives a reinstall. That is the point.
-    expect(existsSync(join(config, 'config.json'))).toBe(true);
+    expect(existsSync(posix.join(config, 'config.json'))).toBe(true);
   });
 });
 

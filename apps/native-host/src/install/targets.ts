@@ -1,4 +1,15 @@
-import { join } from 'node:path';
+import { posix, win32 } from 'node:path';
+
+/**
+ * The separator of the TARGET platform, not of the running one.
+ *
+ * `join` from 'node:path' follows the machine it runs on, so asking for the
+ * macOS layout from a Windows runner produced backslashes - which made these
+ * functions untestable anywhere but on their own platform, and the CI said so.
+ */
+export function pathsFor(platform: NodeJS.Platform): typeof posix {
+  return platform === 'win32' ? (win32 as unknown as typeof posix) : posix;
+}
 
 /**
  * Where a Chromium browser looks for a native messaging manifest.
@@ -48,6 +59,7 @@ export function installTargets(environment: TargetEnvironment): InstallTarget[] 
   }
 
   if (platform === 'darwin') {
+    const { join } = pathsFor(platform);
     const support = join(home, 'Library', 'Application Support');
     return [
       { browser: 'Chrome', dir: join(support, 'Google', 'Chrome') },
@@ -63,6 +75,7 @@ export function installTargets(environment: TargetEnvironment): InstallTarget[] 
     }));
   }
 
+  const { join } = pathsFor(platform);
   const configHome = environment.configHome ?? join(home, '.config');
   return [
     { browser: 'Chrome', dir: join(configHome, 'google-chrome') },
@@ -78,6 +91,7 @@ export function installTargets(environment: TargetEnvironment): InstallTarget[] 
 
 /** Where the program goes. Never outside the user's profile. */
 export function installDir(environment: TargetEnvironment, env: NodeJS.ProcessEnv = {}): string {
+  const { join } = pathsFor(environment.platform);
   if (environment.platform === 'win32') {
     const local = env['LOCALAPPDATA'] ?? join(environment.home, 'AppData', 'Local');
     return join(local, 'Programs', 'BooksyReceiptBridge');

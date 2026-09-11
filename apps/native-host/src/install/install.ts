@@ -3,7 +3,13 @@ import { cpSync, existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } fr
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { installDir, installTargets, manifestContent, type InstallTarget } from './targets.ts';
+import {
+  installDir,
+  installTargets,
+  manifestContent,
+  pathsFor,
+  type InstallTarget,
+} from './targets.ts';
 
 /**
  * Install the service, from the service itself.
@@ -126,15 +132,23 @@ export async function install(deps: InstallDeps): Promise<InstallResult> {
   }
 
   mkdirSync(target, { recursive: true });
-  const exeTarget = join(target, environment.platform === 'win32' ? EXE_WINDOWS : EXE_POSIX);
+  // Everything under the target tree is spelled for the TARGET platform, the
+  // same way installDir spells it - mixing the two separators produced paths
+  // that pointed at the right file but compared unequal, which is how this
+  // broke on the Windows runner.
+  const targetPaths = pathsFor(environment.platform);
+  const exeTarget = targetPaths.join(
+    target,
+    environment.platform === 'win32' ? EXE_WINDOWS : EXE_POSIX,
+  );
 
   // Running the already-installed copy is the update case: copying a file onto
   // itself fails on Windows, and there would be nothing to copy anyway.
   if (!samePath(found.exe, exeTarget)) {
     try {
       cpSync(found.exe, exeTarget);
-      rmSync(join(target, 'pdfjs'), { recursive: true, force: true });
-      cpSync(join(source, 'pdfjs'), join(target, 'pdfjs'), { recursive: true });
+      rmSync(targetPaths.join(target, 'pdfjs'), { recursive: true, force: true });
+      cpSync(join(source, 'pdfjs'), targetPaths.join(target, 'pdfjs'), { recursive: true });
     } catch (error) {
       return failure(
         `Copie impossible vers ${target} : ${error instanceof Error ? error.message : String(error)}`,
@@ -148,7 +162,7 @@ export async function install(deps: InstallDeps): Promise<InstallResult> {
   let extensionPath: string | undefined;
   const extensionSource = join(source, 'extension');
   if (existsSync(join(extensionSource, 'manifest.json'))) {
-    extensionPath = join(target, 'extension');
+    extensionPath = targetPaths.join(target, 'extension');
     if (!samePath(extensionSource, extensionPath)) {
       rmSync(extensionPath, { recursive: true, force: true });
       cpSync(extensionSource, extensionPath, { recursive: true });
@@ -156,7 +170,7 @@ export async function install(deps: InstallDeps): Promise<InstallResult> {
     deps.log(`  extension    ${extensionPath}`);
   }
 
-  const manifestPath = join(target, `${NATIVE_HOST_NAME}.json`);
+  const manifestPath = targetPaths.join(target, `${NATIVE_HOST_NAME}.json`);
   writeFileSync(
     manifestPath,
     `${JSON.stringify(manifestContent(NATIVE_HOST_NAME, exeTarget, deps.extensionIds), null, 2)}\n`,
