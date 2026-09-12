@@ -28,6 +28,25 @@ import type { ReceiptSource } from '@brb/shared';
 import type { ActiveTabPdf } from '../messaging/protocol.ts';
 import { resolveHostState } from '../messaging/state.ts';
 
+/**
+ * What to show the user when the service refuses.
+ *
+ * The service answers with a category ("L'impression a échoué.") and, in
+ * `detail`, what actually went wrong - the spooler's own words, the queue that
+ * does not exist. Showing only the category sent the user to a log file to
+ * learn anything, which on a till means never. Both, on one line.
+ */
+export function describeHostError(
+  error: { message?: string; detail?: string } | undefined,
+  fallback: string,
+): string {
+  const message = error?.message ?? fallback;
+  const detail = error?.detail;
+  return detail === undefined || detail === '' || detail === message
+    ? message
+    : `${message} ${detail}`;
+}
+
 export interface RouterSender {
   id?: string | undefined;
   /**
@@ -128,7 +147,7 @@ async function dispatch(
     case 'PING_HOST': {
       const ping = await deps.client.send<PingData>({ id: nextMessageId(), type: 'PING' });
       if (!ping.success) {
-        return { kind: 'ERROR', message: ping.error?.message ?? 'Le service ne répond pas.' };
+        return { kind: 'ERROR', message: describeHostError(ping.error, 'Le service ne répond pas.') };
       }
       return { kind: 'HOST_STATE', state: await resolveHostState(deps.client) };
     }
@@ -139,7 +158,7 @@ async function dispatch(
         type: 'LIST_PRINTERS',
       });
       if (!response.success || response.data === undefined) {
-        return { kind: 'ERROR', message: response.error?.message ?? 'Liste indisponible.' };
+        return { kind: 'ERROR', message: describeHostError(response.error, 'Liste indisponible.') };
       }
       return {
         kind: 'PRINTERS',
@@ -156,7 +175,7 @@ async function dispatch(
           : { id: nextMessageId(), type: 'SET_CONFIG', payload: request.patch },
       );
       if (!response.success || response.data === undefined) {
-        return { kind: 'ERROR', message: response.error?.message ?? 'Configuration indisponible.' };
+        return { kind: 'ERROR', message: describeHostError(response.error, 'Configuration indisponible.') };
       }
       return {
         kind: 'CONFIG',
@@ -182,7 +201,7 @@ async function dispatch(
         type: 'CHECK_UPDATE',
       });
       if (!response.success || response.data === undefined) {
-        return { kind: 'ERROR', message: response.error?.message ?? 'Vérification impossible.' };
+        return { kind: 'ERROR', message: describeHostError(response.error, 'Vérification impossible.') };
       }
       return { kind: 'UPDATE', check: response.data };
     }
@@ -193,7 +212,7 @@ async function dispatch(
         type: 'DOWNLOAD_UPDATE',
       });
       if (!response.success || response.data === undefined) {
-        return { kind: 'ERROR', message: response.error?.message ?? 'Téléchargement impossible.' };
+        return { kind: 'ERROR', message: describeHostError(response.error, 'Téléchargement impossible.') };
       }
       return { kind: 'UPDATE_DOWNLOADED', download: response.data };
     }
@@ -230,7 +249,7 @@ async function dispatch(
         payload: { source: pending.source, format: 'svg' },
       });
       if (!response.success || response.data === undefined) {
-        return { kind: 'ERROR', message: response.error?.message ?? 'Aperçu indisponible.' };
+        return { kind: 'ERROR', message: describeHostError(response.error, 'Aperçu indisponible.') };
       }
       return {
         kind: 'PREVIEW',
@@ -257,7 +276,7 @@ async function dispatch(
         },
       });
       if (!response.success || response.data === undefined) {
-        return { kind: 'ERROR', message: response.error?.message ?? 'Impression échouée.' };
+        return { kind: 'ERROR', message: describeHostError(response.error, 'Impression échouée.') };
       }
       // Only once it printed: a failure must leave the preview open to retry.
       await dropPending(deps.storage, request.id);

@@ -130,6 +130,7 @@ Piloter le service sans navigateur — il est la source de vérité :
 ```bash
 pnpm host status
 pnpm host config set printer.name "EPSON TM-T88V Receipt5"
+pnpm host print ./fixtures/booksy/recu-1167.anon.pdf      # imprime, et dit pourquoi si ça rate
 pnpm host ticket ./fixtures/booksy/recu-1167.anon.pdf     # le ticket en texte
 pnpm host escpos ./fixtures/booksy/recu-1167.anon.pdf     # les octets
 pnpm inspect ./fixtures/booksy/recu-1167.anon.pdf         # coordonnées du PDF

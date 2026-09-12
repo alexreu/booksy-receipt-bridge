@@ -36,6 +36,9 @@ Sans argument, le host parle le protocole Native Messaging sur stdin/stdout.
   ticket <pdf>             Affiche le ticket 80 mm en texte
   html <pdf> [--out f]     Écrit l'aperçu HTML
   escpos <pdf> --out f     Écrit les octets ESC/POS
+  print <pdf> [--printer n]
+                           Imprime pour de vrai et affiche l'erreur exacte
+                           si ça échoue, sans passer par le navigateur
 `;
 
 export async function runCli(argv: readonly string[]): Promise<number> {
@@ -79,6 +82,9 @@ export async function runCli(argv: readonly string[]): Promise<number> {
 
     case 'config':
       return configCommand(rest);
+
+    case 'print':
+      return runPrint(rest);
 
     case 'install':
       return runInstall(rest);
@@ -271,5 +277,61 @@ async function runUninstall(): Promise<number> {
       `Retirez aussi l'extension du navigateur, sur chrome://extensions.\n`,
   );
   void result;
+  return 0;
+}
+
+/**
+ * Print, and say plainly what happened.
+ *
+ * The popup shows a failure in one line and the rest goes to a log file, which
+ * on a till means asking someone to open a folder they have never opened. Here
+ * the reason is on screen, and the exit code says whether paper came out.
+ */
+async function runPrint(argv: readonly string[]): Promise<number> {
+  const file = argv.find((argument) => !argument.startsWith('--'));
+  if (file === undefined) {
+    err('Usage : print <pdf> [--printer "Nom de l\'imprimante"]\n');
+    return 2;
+  }
+  const flag = argv.indexOf('--printer');
+  const printerName = flag === -1 ? undefined : argv[flag + 1];
+
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(file);
+  } catch (error) {
+    err(`Fichier illisible : ${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
+  }
+
+  const host = createHost({ log: silentLogger() });
+  const response = await host.handle({
+    id: 'cli',
+    type: 'PRINT_RECEIPT',
+    payload: {
+      source: { kind: 'bytes', base64: bytes.toString('base64') },
+      trigger: 'user',
+      ...(printerName === undefined ? {} : { printerName }),
+    },
+  });
+
+  if (!response.success) {
+    // The detail is the part that says WHAT failed: the spooler's own words,
+    // the queue that does not exist. The message alone is a category.
+    const { code, message, detail } = response.error ?? {};
+    err(`ÉCHEC ${code ?? 'INCONNU'} : ${message ?? 'raison inconnue'}\n`);
+    if (detail !== undefined && detail !== '') err(`${detail}\n`);
+    return 1;
+  }
+
+  const data = response.data as { ticketNumber?: string; duplicate?: boolean } | undefined;
+  if (data?.duplicate === true) {
+    out(
+      `Ticket ${data.ticketNumber ?? '?'} considéré comme déjà imprimé : rien envoyé.\n` +
+        `Attendez deux minutes, ou videz l'historique pour forcer.\n`,
+    );
+    return 0;
+  }
+  out(`Ticket ${data?.ticketNumber ?? '?'} envoyé à l'imprimante.\n`);
   return 0;
 }

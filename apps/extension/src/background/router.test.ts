@@ -9,7 +9,7 @@ import {
 } from '@brb/shared';
 import { createMockNativeHostClient } from '../messaging/mock-client.ts';
 import { PENDING_KEY } from '../preview/pending.ts';
-import { handleExtensionMessage, type RouterDeps } from './router.ts';
+import { describeHostError, handleExtensionMessage, type RouterDeps } from './router.ts';
 
 const EXTENSION_ID = 'ndfcmfgnelpdjgpmaelpdgoccmjcpdjm';
 const PING: PingData = { status: 'ready', version: '1.2.3', protocolVersion: PROTOCOL_VERSION };
@@ -364,6 +364,31 @@ describe('handleExtensionMessage - the PDF in the active tab', () => {
       deps({ activeTabPdf: () => Promise.resolve({ pdf: PDF }) }),
     );
     expect(response.kind).toBe('ACTIVE_TAB');
+  });
+});
+
+describe('describeHostError', () => {
+  it('says what failed, not just that something did', () => {
+    // The service answers with a category and, in `detail`, the spooler's own
+    // words. Showing only the category sent the user to a log file to learn
+    // anything - which on a till means never.
+    expect(
+      describeHostError(
+        { message: 'L’impression a échoué.', detail: 'lp: The printer does not exist' },
+        'Impression échouée.',
+      ),
+    ).toBe('L’impression a échoué. lp: The printer does not exist');
+  });
+
+  it('does not repeat itself when there is nothing to add', () => {
+    expect(describeHostError({ message: 'Liste indisponible.' }, 'x')).toBe('Liste indisponible.');
+    expect(
+      describeHostError({ message: 'Idem.', detail: 'Idem.' }, 'x'),
+    ).toBe('Idem.');
+  });
+
+  it('falls back when the service said nothing usable', () => {
+    expect(describeHostError(undefined, 'Impression échouée.')).toBe('Impression échouée.');
   });
 });
 

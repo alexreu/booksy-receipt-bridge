@@ -39,7 +39,7 @@ describe('selectMode', () => {
 
   it('shows usage for something that looks like a mistyped command', () => {
     expect(selectMode(['tickett'])).toBe('usage');
-    expect(selectMode(['print'])).toBe('usage');
+    expect(selectMode(['imprime'])).toBe('usage');
   });
 });
 
