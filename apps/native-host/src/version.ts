@@ -8,4 +8,4 @@
  * release build a binary announcing the previous version, and the release
  * failed on its own verification step.
  */
-export const HOST_VERSION = '0.1.8';
+export const HOST_VERSION = '0.1.9';

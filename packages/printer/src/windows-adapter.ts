@@ -260,22 +260,41 @@ function describe(error: unknown): string {
   return String(error);
 }
 
-function runPowerShell(script: string): Promise<PowerShellResult> {
-  return new Promise((resolve, reject) => {
-    const child = execFile(
-      POWERSHELL,
-      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', '-'],
-      { timeout: EXEC_TIMEOUT_MS, windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(`${error.message}${stderr === '' ? '' : `: ${stderr.trim()}`}`));
-          return;
-        }
-        resolve({ stdout, stderr });
-      },
-    );
-    // Piped through stdin rather than a -Command argument: the script embeds a
-    // here-string of C# and would not survive command-line quoting.
-    child.stdin?.end(script, 'utf8');
-  });
+/**
+ * Run the script from a FILE, not from standard input.
+ *
+ * It used to be piped to `-Command -`, and on a real till that produced
+ * nothing at all: no output, no error, exit code 0, and no print job. The same
+ * machine ran a one-line script through that channel happily, and `Add-Type`
+ * in FullLanguage happily - so what it refused was a multi-line script arriving
+ * that way. `-File` executes it as a script, which is what it is, and gives a
+ * real exit code and real error output.
+ *
+ * WITH A BYTE ORDER MARK. Windows PowerShell 5.1 reads a .ps1 without one as
+ * ANSI, so a printer name with an accent would arrive mangled - and a printer
+ * name that does not match opens nothing.
+ */
+async function runPowerShell(script: string): Promise<PowerShellResult> {
+  const directory = await mkdtemp(join(tmpdir(), 'brb-ps-'));
+  const path = join(directory, 'job.ps1');
+  await writeFile(path, `\ufeff${script}`, 'utf8');
+
+  try {
+    return await new Promise<PowerShellResult>((resolve, reject) => {
+      execFile(
+        POWERSHELL,
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path],
+        { timeout: EXEC_TIMEOUT_MS, windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
+        (error, stdout, stderr) => {
+          if (error) {
+            reject(new Error(`${error.message}${stderr === '' ? '' : `: ${stderr.trim()}`}`));
+            return;
+          }
+          resolve({ stdout, stderr });
+        },
+      );
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
