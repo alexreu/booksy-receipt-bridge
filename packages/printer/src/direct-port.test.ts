@@ -114,6 +114,47 @@ describe('withDirectPorts', () => {
     expect(port.writes[0]?.bytes.length).toBeGreaterThan(0);
   });
 
+  it('forwards the driver\'s text mode instead of dropping it', async () => {
+    // The wrapper rebuilds the adapter object, and forgetting one optional
+    // method is invisible to the type checker on the way out. It cost a till a
+    // release: "this driver cannot print text", about a driver that can.
+    const texts: string[] = [];
+    const queue = {
+      ...createMockPrinterAdapter(),
+      printText: (text: string) => {
+        texts.push(text);
+        return Promise.resolve({ ok: true, bytesSent: text.length });
+      },
+    };
+
+    const adapter = withDirectPorts(queue);
+    const result = await adapter.printText?.('TOTAL 12,00 €', configFor('EPSON TM-T88V Receipt5'));
+
+    expect(result).toMatchObject({ ok: true });
+    expect(texts).toEqual(['TOTAL 12,00 €']);
+  });
+
+  it('keeps every optional capability the wrapped driver has', () => {
+    const queue = {
+      ...createMockPrinterAdapter(),
+      printText: () => Promise.resolve({ ok: true }),
+      printDocument: () => Promise.resolve({ ok: true }),
+    };
+    const adapter = withDirectPorts(queue);
+    expect(typeof adapter.printText).toBe('function');
+    expect(typeof adapter.printDocument).toBe('function');
+  });
+
+  it('writes text to a port as bytes, since a port lays nothing out', async () => {
+    const port = recorder();
+    const adapter = withDirectPorts(createMockPrinterAdapter(), { write: port.write });
+
+    await adapter.printText?.('TOTAL', configFor('COM3'));
+
+    expect(port.writes).toHaveLength(1);
+    expect(port.writes[0]?.target).toEqual({ kind: 'device', path: '\\\\.\\COM3' });
+  });
+
   it('still lists the machine queues, which a port does not replace', async () => {
     const adapter = withDirectPorts(createMockPrinterAdapter());
     expect((await adapter.list()).length).toBeGreaterThan(0);

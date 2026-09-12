@@ -131,12 +131,35 @@ export function withDirectPorts(
     return { ...result, unmapped };
   };
 
+  /**
+   * Text goes to the port as bytes, and to a queue as text.
+   *
+   * A port has no print processor to lay anything out, so the fallback that
+   * exists for a driver refusing ESC/POS is meaningless there: the bytes are
+   * simply written.
+   */
+  const printText = async (text: string, config: PrinterConfig): Promise<PrintResult> => {
+    if (parsePortTarget(config.name) === undefined) {
+      if (adapter.printText === undefined) {
+        return { ok: false, error: "Ce pilote ne sait pas imprimer du texte sur ce poste." };
+      }
+      return adapter.printText(text, config);
+    }
+    const { toWindowsAnsi } = await import('./windows-ansi.ts');
+    return printRaw(toWindowsAnsi(text), config);
+  };
+
   const list = (): Promise<Printer[]> => adapter.list();
 
+  // Every optional capability is forwarded explicitly. Rebuilding the object
+  // and forgetting one is how `printText` vanished between the driver that
+  // implements it and the code that needs it - the till reported "this driver
+  // cannot print text" about a driver that can.
   return {
     list,
     printRaw,
     printTest,
+    printText,
     // A port takes bytes, not a document: an ordinary printer is reached
     // through its queue, which is what the wrapped adapter is for.
     ...(adapter.printDocument === undefined
