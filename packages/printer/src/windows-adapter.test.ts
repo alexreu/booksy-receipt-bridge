@@ -46,7 +46,7 @@ describe('parsePrinterList', () => {
 
 describe('createWindowsPrinterAdapter - list', () => {
   it('asks PowerShell for the queues and the default', async () => {
-    const run = vi.fn<RunPowerShell>().mockResolvedValue(JSON.stringify({ Name: 'X' }));
+    const run = vi.fn<RunPowerShell>().mockResolvedValue({ stdout: JSON.stringify({ Name: 'X' }), stderr: '' });
     const printers = await adapterWith(run).list();
     expect(printers).toEqual([{ name: 'X' }]);
 
@@ -68,7 +68,7 @@ describe('createWindowsPrinterAdapter - printRaw', () => {
   it('sends the bytes as a RAW spooler job', async () => {
     // RAW is the whole point: it bypasses the driver's rendering and page
     // setup, so nothing rescales the ticket and no dialog appears.
-    const run = vi.fn<RunPowerShell>().mockResolvedValue('written=42\n');
+    const run = vi.fn<RunPowerShell>().mockResolvedValue({ stdout: 'written=42\n', stderr: '' });
     const result = await adapterWith(run).printRaw(new Uint8Array([1, 2, 3]), CONFIG);
 
     expect(result).toMatchObject({ ok: true, bytesSent: 42 });
@@ -84,7 +84,7 @@ describe('createWindowsPrinterAdapter - printRaw', () => {
   it('passes the bytes through a file, not the command line', async () => {
     // An ESC/POS stream is binary and full of control characters; no amount of
     // shell quoting survives it.
-    const run = vi.fn<RunPowerShell>().mockResolvedValue('written=3');
+    const run = vi.fn<RunPowerShell>().mockResolvedValue({ stdout: 'written=3', stderr: '' });
     await adapterWith(run).printRaw(new Uint8Array([0x1b, 0x40, 0x0a]), CONFIG);
     const script = run.mock.calls[0]?.[0] ?? '';
     expect(script).toContain('ReadAllBytes');
@@ -92,15 +92,34 @@ describe('createWindowsPrinterAdapter - printRaw', () => {
   });
 
   it('escapes a printer name containing a quote', async () => {
-    const run = vi.fn<RunPowerShell>().mockResolvedValue('written=1');
+    const run = vi.fn<RunPowerShell>().mockResolvedValue({ stdout: 'written=1', stderr: '' });
     await adapterWith(run).printRaw(new Uint8Array([1]), { ...CONFIG, name: "L'imprimante" });
     expect(run.mock.calls[0]?.[0]).toContain("'L''imprimante'");
   });
 
-  it('falls back to the payload length when the output says nothing', async () => {
-    const run = vi.fn<RunPowerShell>().mockResolvedValue('');
+  it('fails when the spooler confirmed nothing, rather than inventing a count', async () => {
+    // This test used to assert the opposite, and the opposite is a lie: the
+    // adapter reported the bytes it HOPED to write. On a real till that showed
+    // as "ticket envoyé" with no job in the queue and no paper - and sent the
+    // user looking at their printer instead of at the error.
+    const run = vi.fn<RunPowerShell>().mockResolvedValue({ stdout: '', stderr: '' });
     const result = await adapterWith(run).printRaw(new Uint8Array([1, 2, 3, 4]), CONFIG);
-    expect(result).toMatchObject({ ok: true, bytesSent: 4 });
+    expect(result.ok).toBe(false);
+  });
+
+  it('reports what PowerShell said when it said it on stderr', async () => {
+    // PowerShell reading a script from stdin exits 0 even when the script
+    // throws, so stderr is the only place the reason ever appears - a blocked
+    // Add-Type under Constrained Language Mode, for instance.
+    const run = vi.fn<RunPowerShell>().mockResolvedValue({
+      stdout: '',
+      stderr: 'Add-Type : Cannot invoke method. Method invocation is supported only on core types',
+    });
+
+    const result = await adapterWith(run).printRaw(new Uint8Array([1]), CONFIG);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('Add-Type');
   });
 
   it('reports a PowerShell failure instead of throwing', async () => {
@@ -122,7 +141,7 @@ describe('createWindowsPrinterAdapter - printTest', () => {
       if (path !== undefined) {
         sent = new Uint8Array(readFileSync(path));
       }
-      return Promise.resolve('written=1');
+      return Promise.resolve({ stdout: 'written=1', stderr: '' });
     });
 
     const result = await adapterWith(run).printTest(CONFIG);

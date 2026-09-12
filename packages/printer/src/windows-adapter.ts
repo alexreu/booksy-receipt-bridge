@@ -92,7 +92,19 @@ public static class RawPrinter {
 }
 `;
 
-export type RunPowerShell = (script: string) => Promise<string>;
+export interface PowerShellResult {
+  stdout: string;
+  stderr: string;
+}
+
+/**
+ * Both streams, deliberately.
+ *
+ * PowerShell reading a script from stdin exits 0 even when that script throws,
+ * so the exit code proves nothing and stderr is the only place the reason
+ * appears. Resolving stdout alone is how a failed job was reported as printed.
+ */
+export type RunPowerShell = (script: string) => Promise<PowerShellResult>;
 
 export interface WindowsPrinterAdapterOptions {
   /** Injected so the adapter can be tested off Windows. */
@@ -115,7 +127,7 @@ export function createWindowsPrinterAdapter(
         '@(Get-Printer | Select-Object Name, PrinterStatus, @{n="IsDefault";e={$_.Name -eq $d}}) ' +
         '| ConvertTo-Json -Depth 3 -Compress',
     );
-    return parsePrinterList(output);
+    return parsePrinterList(output.stdout);
   };
 
   /**
@@ -154,9 +166,22 @@ export function createWindowsPrinterAdapter(
         'Write-Output "written=$written"',
       ].join('\n');
 
-      const output = await run(script);
-      const written = /written=(\d+)/.exec(output)?.[1];
-      return { ok: true, bytesSent: written === undefined ? bytes.length : Number(written) };
+      const { stdout, stderr } = await run(script);
+      const written = /written=(\d+)/.exec(stdout)?.[1];
+      if (written === undefined) {
+        // No confirmation means no job. Reporting the byte count we HOPED to
+        // write, as this did, turns a failure into "ticket envoyé" and sends
+        // the user looking at their printer instead of at the error.
+        const reason = (stderr.trim() === '' ? stdout : stderr).trim();
+        return {
+          ok: false,
+          error:
+            reason === ''
+              ? "Le spouleur n'a rien confirmé et n'a rien dit."
+              : `Le spouleur n'a pas confirmé l'écriture : ${reason.slice(0, 600)}`,
+        };
+      }
+      return { ok: true, bytesSent: Number(written) };
     } catch (error) {
       return { ok: false, error: describe(error) };
     } finally {
@@ -235,7 +260,7 @@ function describe(error: unknown): string {
   return String(error);
 }
 
-function runPowerShell(script: string): Promise<string> {
+function runPowerShell(script: string): Promise<PowerShellResult> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       POWERSHELL,
@@ -246,7 +271,7 @@ function runPowerShell(script: string): Promise<string> {
           reject(new Error(`${error.message}${stderr === '' ? '' : `: ${stderr.trim()}`}`));
           return;
         }
-        resolve(stdout);
+        resolve({ stdout, stderr });
       },
     );
     // Piped through stdin rather than a -Command argument: the script embeds a
