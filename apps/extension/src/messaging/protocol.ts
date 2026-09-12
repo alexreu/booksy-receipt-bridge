@@ -166,7 +166,7 @@ export function parseConfigPatch(raw: unknown): ConfigPatch | undefined {
     if (!assignString(source, target, 'name')) return undefined;
     const kind = source['kind'];
     if (kind !== undefined) {
-      if (kind !== 'thermal' && kind !== 'paper') return undefined;
+      if (kind !== 'thermal' && kind !== 'paper' && kind !== 'text') return undefined;
       target.kind = kind;
     }
     for (const key of ['paperWidth', 'printableWidth', 'columns'] as const) {

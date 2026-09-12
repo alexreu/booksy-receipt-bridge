@@ -39,8 +39,13 @@ export type ReceiptSource =
  * `thermal` gets ESC/POS bytes. `paper` gets a PDF holding the same ticket at
  * its real width in the corner of an A4 sheet: control codes sent to a laser
  * print as gibberish, and nothing in the queue's name says which it is.
+ *
+ * `text` is the fallback for a thermal printer whose driver refuses raw
+ * ESC/POS - EPSON's Advanced Printer Driver accepts the job, reports every
+ * byte written, and prints nothing. The ticket then goes as plain text and the
+ * driver lays it out: same grid, same amounts, no bold and no automatic cut.
  */
-export type PrinterKind = 'thermal' | 'paper';
+export type PrinterKind = 'thermal' | 'paper' | 'text';
 
 export interface ConfigPatch {
   printer?: {

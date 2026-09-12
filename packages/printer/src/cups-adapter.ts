@@ -117,6 +117,28 @@ export function createCupsPrinterAdapter(options: CupsAdapterOptions = {}): Prin
     }
   };
 
+  /** The same fallback as on Windows: the driver lays the text out. */
+  const printText = async (text: string, config: PrinterConfig): Promise<PrintResult> => {
+    if (config.name === '') return { ok: false, error: 'Aucune imprimante configurée.' };
+
+    let directory: string | undefined;
+    try {
+      directory = await mkdtemp(join(tmpdir(), 'brb-print-'));
+      const payload = join(directory, 'ticket.txt');
+      await writeFile(payload, text, 'utf8');
+
+      const output = await run('lp', ['-d', config.name, '-t', 'Booksy receipt', payload]);
+      const jobId = parseJobId(output);
+      return { ok: true, bytesSent: text.length, ...(jobId === undefined ? {} : { jobId }) };
+    } catch (error) {
+      return { ok: false, error: describe(error) };
+    } finally {
+      if (directory !== undefined) {
+        await rm(directory, { recursive: true, force: true }).catch(() => undefined);
+      }
+    }
+  };
+
   const printTest = async (config: PrinterConfig): Promise<PrintResult> => {
     const { bytes, unmapped } = emitEscPos(buildTestTicketLayout(config), {
       ...(config.cutFeedDots === undefined ? {} : { cutFeedDots: config.cutFeedDots }),
@@ -125,7 +147,7 @@ export function createCupsPrinterAdapter(options: CupsAdapterOptions = {}): Prin
     return { ...result, unmapped };
   };
 
-  return { list, printRaw, printTest, printDocument };
+  return { list, printRaw, printTest, printDocument, printText };
 }
 
 /** `lpstat -e`: one destination per line, no prose, any locale. */

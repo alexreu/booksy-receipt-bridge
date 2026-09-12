@@ -349,6 +349,77 @@ describe('printReceipt - a failed job is not a printed one', () => {
   });
 });
 
+describe('printReceipt - the driver lays the ticket out', () => {
+  /** A driver that renders text, and records what it was given. */
+  function textAdapter(withText: boolean) {
+    const texts: string[] = [];
+    const raws: number[] = [];
+    const base = {
+      list: () => Promise.resolve([{ name: PRINTER }]),
+      printRaw: (bytes: Uint8Array) => {
+        raws.push(bytes.length);
+        return Promise.resolve({ ok: true, bytesSent: bytes.length });
+      },
+      printTest: () => Promise.resolve({ ok: true }),
+    };
+    const adapter = withText
+      ? {
+          ...base,
+          printText: (text: string) => {
+            texts.push(text);
+            return Promise.resolve({ ok: true, bytesSent: text.length });
+          },
+        }
+      : base;
+    return { adapter, texts, raws };
+  }
+
+  it('sends the ticket as text, never as ESC/POS', async () => {
+    // The fallback for a driver that accepts raw ESC/POS, reports it written,
+    // and prints nothing - which is what a TM-T88V did behind EPSON's APD.
+    const { adapter, texts, raws } = textAdapter(true);
+    const outcome = await printReceipt(
+      { source: { kind: 'path', path: receiptPath } },
+      deps({
+        printer: adapter,
+        config: config({ printer: { ...DEFAULT_CONFIG.printer, name: PRINTER, kind: 'text' } }),
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    expect(raws).toEqual([]);
+    expect(texts).toHaveLength(1);
+    // The same grid as the thermal route: 42 columns, the same amounts.
+    expect(texts[0]).toContain('TOTAL TTC');
+    expect(texts[0]?.split('\n')[0]?.length).toBeLessThanOrEqual(42);
+  });
+
+  it('says so, and forgets the job, when the driver cannot render text', async () => {
+    const { adapter } = textAdapter(false);
+    const outcome = await printReceipt(
+      { source: { kind: 'path', path: receiptPath } },
+      deps({
+        printer: adapter,
+        config: config({ printer: { ...DEFAULT_CONFIG.printer, name: PRINTER, kind: 'text' } }),
+      }),
+    );
+
+    expect(outcome).toMatchObject({ ok: false, code: 'PRINT_FAILED' });
+
+    // And the next attempt is allowed through, since nothing printed.
+    const { adapter: second, texts } = textAdapter(true);
+    const retried = await printReceipt(
+      { source: { kind: 'path', path: receiptPath } },
+      deps({
+        printer: second,
+        config: config({ printer: { ...DEFAULT_CONFIG.printer, name: PRINTER, kind: 'text' } }),
+      }),
+    );
+    expect(retried.ok).toBe(true);
+    expect(texts).toHaveLength(1);
+  });
+});
+
 describe('printReceipt - an ordinary printer', () => {
   /** A driver that records what it was handed, and how. */
   function recordingAdapter(withDocument: boolean) {

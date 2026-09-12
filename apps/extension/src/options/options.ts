@@ -5,7 +5,7 @@
  * this page is a form over GET_CONFIG / SET_CONFIG. That way a reinstalled
  * extension does not lose the printer setup, and the CLI sees the same values.
  */
-import type { BridgeConfig, Printer } from '@brb/shared';
+import type { BridgeConfig, Printer, PrinterKind } from '@brb/shared';
 import type { ExtensionRequest, ExtensionResponse } from '../messaging/protocol.ts';
 import type { HostState } from '../messaging/state.ts';
 import { buildPatch, formValuesOf, optionsView, type FormValues } from './view.ts';
@@ -21,11 +21,15 @@ async function ask(request: ExtensionRequest): Promise<ExtensionResponse> {
   return response ?? { kind: 'ERROR', message: 'Le service ne répond pas.' };
 }
 
+/** Anything unexpected in the markup falls back to the safe default. */
+function readPrinterKind(value: string): PrinterKind {
+  return value === 'paper' || value === 'text' ? value : 'thermal';
+}
+
 function readForm(): FormValues {
   return {
     printerName: element<HTMLSelectElement>('printer').value,
-    printerKind:
-      element<HTMLSelectElement>('printer-kind').value === 'paper' ? 'paper' : 'thermal',
+    printerKind: readPrinterKind(element<HTMLSelectElement>('printer-kind').value),
     paperWidth: element<HTMLInputElement>('paper-width').valueAsNumber,
     printableWidth: element<HTMLInputElement>('printable-width').valueAsNumber,
     columns: element<HTMLInputElement>('columns').valueAsNumber,

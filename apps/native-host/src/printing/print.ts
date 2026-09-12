@@ -1,5 +1,5 @@
 import { BooksyParseError, parseBooksyReceipt } from '@brb/booksy-parser';
-import { emitEscPos, emitPdf } from '@brb/receipt-renderer';
+import { emitEscPos, emitPdf, emitText } from '@brb/receipt-renderer';
 import { buildTicketLayout } from '@brb/ticket-layout';
 import type { PrintReceiptData, PrintTestData, ReceiptSource } from '@brb/shared';
 import type { BridgeErrorCode, Clock } from '@brb/shared';
@@ -150,7 +150,35 @@ export async function printReceipt(
   // codes reach a laser as text and come out as gibberish. Same layout, same
   // width - drawn on a sheet instead of a roll.
   const printDocument = deps.printer.printDocument?.bind(deps.printer);
-  const paper = deps.config.printer.kind === 'paper';
+  const printText = deps.printer.printText?.bind(deps.printer);
+  const kind = deps.config.printer.kind;
+  const paper = kind === 'paper';
+
+  // The fallback: the driver lays the ticket out from its text, because it
+  // refuses the ESC/POS we would rather send it.
+  if (kind === 'text') {
+    if (printText === undefined) {
+      forget(key, { path: deps.historyPath, now: deps.now });
+      return {
+        ok: false,
+        code: 'PRINT_FAILED',
+        message: "Ce pilote ne sait pas imprimer du texte sur ce poste.",
+      };
+    }
+    const textResult = await printText(emitText(layout), target);
+    if (!textResult.ok) {
+      forget(key, { path: deps.historyPath, now: deps.now });
+      deps.log.error(`Impression échouée : ${textResult.error ?? 'raison inconnue'}`);
+      return {
+        ok: false,
+        code: 'PRINT_FAILED',
+        message: textResult.error ?? 'Impression échouée.',
+      };
+    }
+    deps.log.info(`Ticket ${receipt.ticket.number} imprimé en texte par le pilote`);
+    return { ok: true, data: { ...base, ...pick(textResult) } };
+  }
+
   if (paper && printDocument === undefined) {
     forget(key, { path: deps.historyPath, now: deps.now });
     return {

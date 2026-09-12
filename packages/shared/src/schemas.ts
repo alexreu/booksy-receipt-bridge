@@ -21,7 +21,7 @@ export const ConfigPatchSchema = z.object({
   printer: z
     .object({
       name: z.string().optional(),
-      kind: z.enum(['thermal', 'paper']).optional(),
+      kind: z.enum(['thermal', 'paper', 'text']).optional(),
       paperWidth: z.number().positive().optional(),
       printableWidth: z.number().positive().optional(),
       columns: z.number().int().positive().optional(),

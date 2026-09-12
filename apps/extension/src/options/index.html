@@ -38,6 +38,13 @@
           </select>
           <p class="note" id="printer-kind-note"></p>
           <p class="note">
+            Certains pilotes constructeurs acceptent l'ESC/POS, disent l'avoir écrit,
+            et n'impriment rien — observé sur une TM-T88V derrière l'Advanced Printer
+            Driver d'EPSON. Le mode « mise en page par le pilote » envoie alors le
+            ticket en texte : mêmes colonnes et mêmes montants, sans gras ni coupe
+            automatique.
+          </p>
+          <p class="note">
             Une imprimante ordinaire ne comprend pas l’ESC/POS : elle en sortirait des
             codes de contrôle. Sur « ordinaire », le même ticket lui est envoyé rendu
             en PDF, à sa largeur réelle, dans le coin d’une A4.

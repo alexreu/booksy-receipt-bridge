@@ -73,7 +73,10 @@ describe('createWindowsPrinterAdapter - printRaw', () => {
 
     expect(result).toMatchObject({ ok: true, bytesSent: 42 });
     const script = run.mock.calls[0]?.[0] ?? '';
-    expect(script).toContain('pDataType = "RAW"');
+    // The datatype is a parameter now, because the TEXT route exists for a
+    // driver that swallows RAW. RAW must still be what a receipt goes as.
+    expect(script).toContain('SendBytes(');
+    expect(script).toContain("'RAW'");
     expect(script).toContain('WritePrinter');
     expect(script).toContain("'EPSON TM-T88V Receipt5'");
   });
@@ -85,7 +88,7 @@ describe('createWindowsPrinterAdapter - printRaw', () => {
     await adapterWith(run).printRaw(new Uint8Array([0x1b, 0x40, 0x0a]), CONFIG);
     const script = run.mock.calls[0]?.[0] ?? '';
     expect(script).toContain('ReadAllBytes');
-    expect(script).toContain('.escpos.bin');
+    expect(script).toContain('job.bin');
   });
 
   it('escapes a printer name containing a quote', async () => {

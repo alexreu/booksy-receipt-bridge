@@ -51,4 +51,13 @@ export interface PrinterAdapter {
    * not implementing it, rather than by pretending and printing nothing.
    */
   printDocument?(bytes: Uint8Array, config: PrinterConfig): Promise<PrintResult>;
+  /**
+   * Print the ticket as text, laid out by the driver.
+   *
+   * The way out when a manufacturer's driver accepts raw ESC/POS, reports it
+   * written, and prints nothing - EPSON's Advanced Printer Driver does exactly
+   * that. The same grid reaches the paper; bold, double width and the cut
+   * become the driver's business.
+   */
+  printText?(text: string, config: PrinterConfig): Promise<PrintResult>;
 }

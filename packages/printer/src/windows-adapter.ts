@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { Printer } from '@brb/shared';
 import { emitEscPos } from '@brb/receipt-renderer';
 import { buildTestTicketLayout } from './test-ticket.ts';
+import { toWindowsAnsi } from './windows-ansi.ts';
 import type { PrinterAdapter, PrinterConfig, PrintResult } from './types.ts';
 
 /**
@@ -61,13 +62,13 @@ public static class RawPrinter {
     if (!ok) throw new Exception(what + " failed, Win32 error " + Marshal.GetLastWin32Error());
   }
 
-  public static int SendBytes(string printerName, string documentName, byte[] bytes) {
+  public static int SendBytes(string printerName, string documentName, byte[] bytes, string dataType) {
     IntPtr handle;
     Check(OpenPrinterW(printerName, out handle, IntPtr.Zero), "OpenPrinter");
     try {
       DOCINFOW info = new DOCINFOW();
       info.pDocName = documentName;
-      info.pDataType = "RAW";
+      info.pDataType = dataType;
       Check(StartDocPrinterW(handle, 1, ref info), "StartDocPrinter");
       try {
         Check(StartPagePrinter(handle), "StartPagePrinter");
@@ -117,7 +118,21 @@ export function createWindowsPrinterAdapter(
     return parsePrinterList(output);
   };
 
-  const printRaw = async (bytes: Uint8Array, config: PrinterConfig): Promise<PrintResult> => {
+  /**
+   * Hand the spooler a job, in the datatype it should be understood as.
+   *
+   * RAW means "these bytes are already for the device" - the driver is not
+   * asked to render anything. TEXT means the opposite: the print processor
+   * renders the characters through the driver, exactly as it does for the
+   * Windows test page. That second route exists because some manufacturer
+   * drivers - EPSON's Advanced Printer Driver among them - accept a RAW job,
+   * report every byte written, and print nothing at all.
+   */
+  const send = async (
+    bytes: Uint8Array,
+    config: PrinterConfig,
+    dataType: 'RAW' | 'TEXT',
+  ): Promise<PrintResult> => {
     if (config.name === '') {
       return { ok: false, error: 'Aucune imprimante configurée.' };
     }
@@ -128,14 +143,14 @@ export function createWindowsPrinterAdapter(
     let directory: string | undefined;
     try {
       directory = await mkdtemp(join(tmpdir(), 'brb-print-'));
-      const payload = join(directory, 'job.escpos.bin');
+      const payload = join(directory, 'job.bin');
       await writeFile(payload, bytes);
 
       const script = [
         '$ErrorActionPreference = "Stop"',
         `Add-Type -TypeDefinition @'\n${RAW_PRINT_SOURCE}\n'@ -Language CSharp`,
         `$bytes = [System.IO.File]::ReadAllBytes(${quote(payload)})`,
-        `$written = [RawPrinter]::SendBytes(${quote(config.name)}, ${quote(documentName)}, $bytes)`,
+        `$written = [RawPrinter]::SendBytes(${quote(config.name)}, ${quote(documentName)}, $bytes, ${quote(dataType)})`,
         'Write-Output "written=$written"',
       ].join('\n');
 
@@ -151,6 +166,20 @@ export function createWindowsPrinterAdapter(
     }
   };
 
+  const printRaw = (bytes: Uint8Array, config: PrinterConfig): Promise<PrintResult> =>
+    send(bytes, config, 'RAW');
+
+  /**
+   * Let the driver lay the ticket out, from its text.
+   *
+   * The fallback for a driver that swallows RAW. The geometry is the same 42
+   * columns, but bold, double width and the cut are the driver's business now,
+   * not ours: what comes out is a plain monospaced ticket with the right
+   * amounts on the right paper, which beats nothing coming out at all.
+   */
+  const printText = (text: string, config: PrinterConfig): Promise<PrintResult> =>
+    send(toWindowsAnsi(text), config, 'TEXT');
+
   const printTest = async (config: PrinterConfig): Promise<PrintResult> => {
     const { bytes, unmapped } = emitEscPos(buildTestTicketLayout(config), {
       ...(config.cutFeedDots === undefined ? {} : { cutFeedDots: config.cutFeedDots }),
@@ -159,7 +188,7 @@ export function createWindowsPrinterAdapter(
     return { ...result, unmapped };
   };
 
-  return { list, printRaw, printTest };
+  return { list, printRaw, printTest, printText };
 }
 
 /**
