@@ -26,7 +26,8 @@ Sans argument, le host parle le protocole Native Messaging sur stdin/stdout.
   ping                     Répond comme au message PING
   status                   Répond comme au message GET_STATUS
   config                   Affiche la configuration et son emplacement
-  config set <clé> <val>   printer.name, printer.columns, printing.autoPrint, ...
+  config set <clé> <val>   printer.name accepte une file Windows OU un port
+                           écrit en direct : COM3, LPT1, 192.168.1.50:9100
   paths                    Affiche les dossiers de données et de logs
   update [--download]      Cherche une version plus récente sur GitHub
   install [--id a,b]       Installe le service et l'enregistre auprès des

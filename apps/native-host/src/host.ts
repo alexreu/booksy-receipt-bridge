@@ -2,6 +2,7 @@ import {
   createCupsPrinterAdapter,
   createMockPrinterAdapter,
   createWindowsPrinterAdapter,
+  withDirectPorts,
   type PrinterAdapter,
 } from '@brb/printer';
 import { systemClock, type Clock, type NativeResponse } from '@brb/shared';
@@ -40,6 +41,15 @@ export interface Host {
  * which is how the pipeline gets exercised on a machine with no spooler at all.
  */
 function selectPrinter(env: NodeJS.ProcessEnv): { printer: PrinterAdapter; name: string } {
+  const platform = selectPlatformPrinter(env);
+  // Wrapped, not replaced: the queues still have to be listed, and a port is a
+  // choice made for one printer rather than a different kind of machine. A
+  // configured name like COM3 or 192.168.1.50:9100 then bypasses the driver -
+  // which is the only way out when the driver discards raw ESC/POS.
+  return { printer: withDirectPorts(platform.printer), name: platform.name };
+}
+
+function selectPlatformPrinter(env: NodeJS.ProcessEnv): { printer: PrinterAdapter; name: string } {
   const forced = env['BRB_PRINTER'];
   if (forced === 'mock') return { printer: createMockPrinterAdapter(), name: 'mock' };
   if (forced === 'windows') return { printer: createWindowsPrinterAdapter(), name: 'windows' };

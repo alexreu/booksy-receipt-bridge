@@ -91,9 +91,18 @@ export function printerChoices(
       note: `Liste fournie par le pilote « ${adapter} » : ce ne sont pas de vraies imprimantes.`,
     };
   }
+  if (!known && configured !== undefined && configured !== '') {
+    // A configured name the list does not contain is not necessarily a
+    // mistake: it is how a DIRECT PORT is named - COM3, 192.168.1.50:9100 -
+    // and those are invisible to a driver that only knows queues. Offering it
+    // is the only way such a printer can be chosen here at all.
+    return {
+      options: [...options, { value: configured, label: `${configured} (configurée)` }],
+      selected: configured,
+      note: '',
+    };
+  }
   if (!known) {
-    // Including the case where the configured printer has been unplugged: a
-    // silent fallback to another queue is worse than asking.
     return { options, selected: '', note: 'Choisissez une imprimante.' };
   }
   return { options, selected: configured ?? '', note: '' };

@@ -143,6 +143,12 @@ interroger — `--uninstall` fait le ménage :
 pnpm host:install
 ```
 
+`printer.name` accepte une file d'impression **ou un port écrit en direct** —
+`COM3`, `LPT1`, `192.168.1.50:9100`. Le port court-circuite spouleur et pilote,
+seule voie possible quand un pilote constructeur absorbe l'ESC/POS qu'on lui
+remet (observé sur une TM-T88V en USB derrière l'Advanced Printer Driver
+d'EPSON).
+
 Le pilote d'impression est choisi selon la plateforme : Windows en RAW, CUPS sur
 macOS et Linux. `BRB_PRINTER=mock` force un pilote simulé, et l'interface annonce
 alors que ces files ne sont pas de vraies imprimantes.

@@ -146,17 +146,19 @@ describe('printerChoices', () => {
     expect(choices.note).toBe('');
   });
 
-  it('selects nothing when the configured printer has gone', () => {
-    // Falling back to another queue silently would print a receipt somewhere
-    // the user never chose.
-    const choices = printerChoices(PRINTERS, 'EPSON absente', 'windows');
-    expect(choices.selected).toBe('');
-    expect(choices.note).toContain('Choisissez');
+  it('offers a configured printer the driver cannot see', () => {
+    // That is what a direct port looks like - COM3, 192.168.1.50:9100 - and no
+    // driver lists it. Without this it could never be chosen here, which on
+    // the till where this was found was the only printer that worked.
+    const choices = printerChoices(PRINTERS, 'COM3', 'windows');
+    expect(choices.selected).toBe('COM3');
+    expect(choices.options.map((option) => option.value)).toContain('COM3');
   });
 
   it('selects nothing when no printer is configured at all', () => {
     const choices = printerChoices(PRINTERS, '', 'windows');
     expect(choices.selected).toBe('');
+    expect(choices.note).toContain('Choisissez');
   });
 
   it('says so when the list comes from a mock driver', () => {

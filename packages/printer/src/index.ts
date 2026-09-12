@@ -4,3 +4,4 @@ export * from './mock-adapter.ts';
 export * from './file-adapter.ts';
 export * from './windows-adapter.ts';
 export * from './cups-adapter.ts';
+export * from './direct-port.ts';
