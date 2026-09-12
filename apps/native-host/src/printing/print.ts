@@ -6,7 +6,7 @@ import type { BridgeErrorCode, Clock } from '@brb/shared';
 import type { PrinterAdapter, PrinterConfig } from '@brb/printer';
 import type { BridgeConfig } from '../config/config.ts';
 import type { Logger } from '../logging/logger.ts';
-import { checkAndRecord, dedupeKey, windowFor } from './dedupe.ts';
+import { checkAndRecord, dedupeKey, forget, windowFor } from './dedupe.ts';
 import { resolveSource } from './source.ts';
 
 export type PrintOutcome<T> =
@@ -152,6 +152,7 @@ export async function printReceipt(
   const printDocument = deps.printer.printDocument?.bind(deps.printer);
   const paper = deps.config.printer.kind === 'paper';
   if (paper && printDocument === undefined) {
+    forget(key, { path: deps.historyPath, now: deps.now });
     return {
       ok: false,
       code: 'PRINT_FAILED',
@@ -173,6 +174,10 @@ export async function printReceipt(
       : await deps.printer.printRaw(bytes, target);
 
   if (!result.ok) {
+    // The reservation goes with it: a job that failed is not a job that
+    // printed, and leaving the entry made every retry answer "already printed,
+    // nothing sent" while no paper had ever come out.
+    forget(key, { path: deps.historyPath, now: deps.now });
     deps.log.error(`Impression échouée : ${result.error ?? 'raison inconnue'}`);
     return { ok: false, code: 'PRINT_FAILED', message: result.error ?? 'Impression échouée.' };
   }

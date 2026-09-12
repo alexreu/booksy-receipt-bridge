@@ -312,6 +312,43 @@ describe('printReceipt - warnings pass straight through', () => {
   });
 });
 
+describe('printReceipt - a failed job is not a printed one', () => {
+  it('lets the next click through after a failure', async () => {
+    // Reported from a till: the first attempt failed, and every click for the
+    // next two minutes answered "already printed, nothing sent" - about a
+    // ticket that had never come out of the printer.
+    const failed = await printReceipt(
+      { source: { kind: 'path', path: receiptPath } },
+      deps({ printer: createMockPrinterAdapter({ failWith: 'imprimante hors ligne' }) }),
+    );
+    expect(failed).toMatchObject({ ok: false, code: 'PRINT_FAILED' });
+
+    const printer = createMockPrinterAdapter();
+    const retried = await printReceipt(
+      { source: { kind: 'path', path: receiptPath } },
+      deps({ printer }),
+    );
+
+    expect(retried.ok).toBe(true);
+    if (!retried.ok) return;
+    expect(retried.data.duplicate).toBeUndefined();
+    expect(printer.calls).toHaveLength(1);
+  });
+
+  it('still refuses a second print after a successful one', async () => {
+    // The protection itself has to survive the fix.
+    const printer = createMockPrinterAdapter();
+    await printReceipt({ source: { kind: 'path', path: receiptPath } }, deps({ printer }));
+    const again = await printReceipt(
+      { source: { kind: 'path', path: receiptPath } },
+      deps({ printer }),
+    );
+
+    expect(again).toMatchObject({ ok: true, data: { duplicate: true } });
+    expect(printer.calls).toHaveLength(1);
+  });
+});
+
 describe('printReceipt - an ordinary printer', () => {
   /** A driver that records what it was handed, and how. */
   function recordingAdapter(withDocument: boolean) {

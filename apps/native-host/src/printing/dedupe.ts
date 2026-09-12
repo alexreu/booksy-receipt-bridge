@@ -36,7 +36,14 @@ export interface DedupeOptions {
 }
 
 /**
- * Record a print, and say whether it had already happened inside the window.
+ * Reserve a print, and say whether it had already happened inside the window.
+ *
+ * A RESERVATION, NOT A RECEIPT. The entry is written before the job is sent,
+ * because a second click can arrive while the first is still printing. If the
+ * job then fails, the caller must `forget` it - otherwise the receipt is on
+ * record as printed when no paper ever came out, and every retry for two
+ * minutes answers "already printed, nothing sent". Reported from a till, on a
+ * ticket that had never printed at all.
  *
  * Records even when it reports a duplicate: pressing the button repeatedly
  * should keep pushing the window out, not let the third click through.
@@ -100,4 +107,15 @@ function write(path: string, entries: readonly HistoryEntry[]): void {
   } catch {
     // Losing the history must not fail a print job.
   }
+}
+
+/**
+ * Drop a reservation, because the job did not print.
+ *
+ * The counterpart of `checkAndRecord`: nothing came out, so nothing should be
+ * remembered, and the next click has to be allowed through.
+ */
+export function forget(key: string, options: Omit<DedupeOptions, 'windowMs'>): void {
+  const entries = read(options.path).filter((entry) => entry.key !== key);
+  write(options.path, entries);
 }
